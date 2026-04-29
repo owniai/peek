@@ -1,0 +1,61 @@
+[package]
+name = "peek-code"
+version = "0.1.0"
+authors = ["owniai"]
+description = """
+peek is a CLI tool that searches for code definitions (functions, classes,
+structs, etc.) across multiple programming languages using tree-sitter AST
+parsing.
+"""
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/owniai/peek"
+homepage = "https://github.com/owniai/peek"
+documentation = "https://github.com/owniai/peek#readme"
+keywords = ["search", "definition", "ast", "tree-sitter"]
+categories = ["command-line-utilities", "development-tools"]
+edition = "2024"
+rust-version = "1.85"
+exclude = [".dev/", ".vibewire/", ".shadow/"]
+
+[[bin]]
+name = "peek"
+path = "src/main.rs"
+bench = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+tree-sitter = "0.26"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-javascript = "0.25"
+tree-sitter-java = "0.23.5"
+tree-sitter-c-sharp = "0.23.5"
+tree-sitter-php = "0.24.2"
+tree-sitter-c = "0.24.2"
+tree-sitter-cpp = "0.23.4"
+tree-sitter-kotlin-ng = "1.1.0"
+tree-sitter-swift = "0.7.1"
+tree-sitter-ruby = "0.23.1"
+regex = "1"
+regex-syntax = "0.8"
+rayon = "1"
+tree-sitter-dart = "0.1.0"
+tree-sitter-bash = "0.25.1"
+tree-sitter-lua = "0.5.0"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+memmap2 = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[dev-dependencies]
+tempfile = "3"

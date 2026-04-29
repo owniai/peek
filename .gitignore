@@ -1,0 +1,6 @@
+/target
+.peek-cache/
+.dev/
+.claude/
+.shadow/
+.vibewire/

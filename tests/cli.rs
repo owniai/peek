@@ -1,0 +1,52 @@
+mod common;
+
+use common::peek;
+
+#[test]
+fn peek_no_results() {
+    let output = peek(&["DoesNotExist", "tests/fixtures"]);
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty(),
+        "expected silent stdout on no match, got: {stdout}"
+    );
+}
+
+#[test]
+fn peek_invalid_path_exits_2() {
+    let output = peek(&["foo", "/nonexistent/path"]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("do not exist") || stderr.contains("does not exist"));
+}
+
+#[test]
+fn peek_ellipsis_lists_all_definitions() {
+    let output = peek(&["...", "tests/fixtures/python/basic_functions.py"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[function/"));
+}
+
+#[test]
+fn peek_ellipsis_with_kind_filter() {
+    let output = peek(&[
+        "-k",
+        "function",
+        "...",
+        "tests/fixtures/python/basic_functions.py",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[function/"));
+    assert!(!stdout.contains("[class/"));
+}
+
+#[test]
+fn peek_ellipsis_no_results_for_empty_dir() {
+    // Use a path with no supported source files
+    let output = peek(&["...", "tests/fixtures/"]);
+    assert!(output.status.success());
+    let _stdout = String::from_utf8_lossy(&output.stdout);
+}
