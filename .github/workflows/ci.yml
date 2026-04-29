@@ -165,3 +165,58 @@ jobs:
         run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          mkdir -p checksums
+          for target in aarch64-apple-darwin x86_64-apple-darwin \
+                        aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+            gh release download "$VERSION" \
+              --pattern "peek-${VERSION}-${target}.tar.gz.sha256" \
+              --dir checksums/ || true
+          done
+
+      - name: Extract checksums
+        id: checksums
+        run: |
+          echo "arm64_mac=$(cut -d' ' -f1 checksums/peek-*aarch64-apple-darwin.tar.gz.sha256)" >> $GITHUB_OUTPUT
+          echo "intel_mac=$(cut -d' ' -f1 checksums/peek-*x86_64-apple-darwin.tar.gz.sha256)" >> $GITHUB_OUTPUT
+          echo "arm64_linux=$(cut -d' ' -f1 checksums/peek-*aarch64-unknown-linux-gnu.tar.gz.sha256)" >> $GITHUB_OUTPUT
+          echo "intel_linux=$(cut -d' ' -f1 checksums/peek-*x86_64-unknown-linux-gnu.tar.gz.sha256)" >> $GITHUB_OUTPUT
+
+      - name: Generate formula
+        run: |
+          VERSION_NUM="${VERSION#v}"
+          bash scripts/update-homebrew-formula.sh \
+            "$VERSION_NUM" \
+            "${{ steps.checksums.outputs.arm64_mac }}" \
+            "${{ steps.checksums.outputs.intel_mac }}" \
+            "${{ steps.checksums.outputs.arm64_linux }}" \
+            "${{ steps.checksums.outputs.intel_linux }}"
+        env:
+          VERSION: ${{ github.ref_name }}
+
+      - name: Push to tap repository
+        uses: dmnemec/copy_file_to_another_repo_action@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        with:
+          source_file: 'Formula/peek.rb'
+          destination_repo: 'owniai/homebrew-tap'
+          destination_folder: 'Formula'
+          user_email: 'noreply@owniai.com'
+          user_name: 'owniai'
+          commit_message: "bump peek to ${{ github.ref_name }}"

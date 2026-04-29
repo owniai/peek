@@ -1,6 +1,6 @@
 [package]
 name = "peek-code"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["owniai"]
 description = """
 peek is a CLI tool that searches for code definitions (functions, classes,
@@ -15,7 +15,11 @@ keywords = ["search", "definition", "ast", "tree-sitter"]
 categories = ["command-line-utilities", "development-tools"]
 edition = "2024"
 rust-version = "1.85"
-exclude = [".dev/", ".vibewire/", ".shadow/"]
+exclude = [".dev/", ".vibewire/"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/peek-v{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
 
 [[bin]]
 name = "peek"
