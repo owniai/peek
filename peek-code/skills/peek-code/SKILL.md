@@ -5,7 +5,38 @@ description: Use when exploring codebase structure, understanding what definitio
 
 # peek
 
-`peek` searches for code definitions by name using tree-sitter AST parsing. Unlike grep, it understands code structure — returns only definition locations with no false positives from comments, strings, or references. Supports scope-aware search (e.g. `MyClass::method`) and ripgrep-aligned CLI flags.
+`peek` searches for code definitions by name using tree-sitter AST parsing.
+
+**Why not grep?** — understands code structure; returns only definition locations with no false positives from comments, strings, or references.
+
+**Always prefer `peek` when:**
+- Searching for a definition by name — no grep, use `peek`
+- Exploring an unfamiliar file — no full-file Read, use `peek ... {path}` to survey definitions first
+- Understanding a module's API surface — `peek` lists all public definitions at a glance
+- Locating members within a scope — `peek "MyClass::.*"` finds all definitions under a class/module, no need to scan through the file
+
+## Supported Languages
+
+| Language | Extensions | Definition Kinds |
+|----------|-----------|-----------------|
+| Python | .py, .pyw | Function, Class, Type |
+| Go | .go | Function, Struct, Interface, Type, Const |
+| Rust | .rs | Function, Struct, Enum, Type, Trait, Const, Macro, Module |
+| JavaScript | .js, .jsx | Function, Class, Const |
+| TypeScript | .ts, .tsx, .mts, .cts | Function, Class, Const, Interface, Type, Enum |
+| Java | .java | Class, Interface, Enum, Function, Const |
+| C# | .cs | Class, Interface, Enum, Struct, Record, Delegate, Event, Function, Const |
+| PHP | .php, .phtml, .phar | Function, Class, Interface, Trait, Enum, Const |
+| C | .c | Function, Struct, Enum, Type, Const, Macro |
+| C++ | .cpp, .cxx, .cc, .hpp, .hxx, .hh, .h | Function, Class, Struct, Enum, Type, Const, Macro |
+| Kotlin | .kt, .kts | Class, Interface, Enum, Function, Object, Type, Const |
+| Swift | .swift, .swiftinterface | Function, Class, Struct, Enum, Protocol, Type, Const, Actor, Extension |
+| Ruby | .rb, .rake, .gemspec, .ru | Function, Class, Module, Const |
+| Dart | .dart | Function, Class, Enum, Const, Type, Mixin, Extension |
+| Bash | .sh, .bash | Function, Const |
+| Lua | .lua | Function |
+
+## Usage
 
 ```
 peek [OPTIONS] <PATTERN> [FILES]...
@@ -20,9 +51,9 @@ peek [OPTIONS] <PATTERN> [FILES]...
 
 ### Pattern
 
-Matches by exact full name (not substring) by default. Regex wildcards are supported for fuzzy matching. The reserved pattern `...` lists all definitions without name filtering.
+**Matching** — exact full name (not substring) by default. Regex wildcards enable fuzzy matching: `get_.*` matches `get_name` / `get_id` (prefix), `.*_handler` matches `click_handler` / `req_handler` (suffix), `foo.*bar` matches `foobar` / `foo_x_bar` (contains). The reserved pattern `...` lists all definitions without name filtering.
 
-A scope prefix narrows the search to definitions under a specific parent scope, using each language's native separator (e.g. `::` for Rust, `.` for Python). Both the scope prefix and the name part support regex independently, split by the last separator. Since `.` and `\` are regex special characters, escape them as `\.` and `\\` when matching literal names.
+**Scope prefix** — narrows the search to definitions under a parent scope, using each language's native separator (`::` for Rust, `.` for Python). The scope and name parts support regex independently, split by the last separator. Escape regex special characters as needed: `\.` for literal `.`, `\\` for literal `\`.
 
 ## Options
 
@@ -65,10 +96,12 @@ A scope prefix narrows the search to definitions under a specific parent scope, 
 
 ### Explore before reading
 
-1. **Explore directories before using peek** — Get the directory structure first (e.g. via `ls` or file tree), then `peek ... {path}` on individual files. Avoid `peek ... .` on the entire repo before knowing which directories matter.
+1. **Explore directories before using peek** — Get the directory structure first (e.g. via `ls` or file tree), then `peek ... {path}` on individual files.
 2. **Check signatures first** — Signatures include parameters, return types, and attributes — often enough to judge whether the implementation body is needed. Note: single-file search omits the file path prefix; use `-H` to force it when piping.
 3. **Merge adjacent line ranges** — Adjacent definitions (e.g. lines 10-15 and 18-30) can be covered by a single Read call.
 4. **`...` lists everything** — When unfamiliar with a file, `peek ... {path}` gives a complete overview of its definitions. Use `-H` if you need the path prefix for downstream processing.
+
+> **Warning:** **Never** run `peek ... .` on the entire repo blindly. If you must search broadly, always pair with `--json` and pipe to JSON CLI tools (e.g. `jq`, `python`, `node`) for structured filtering to avoid flooding output.
 
 ### Scope search
 
@@ -79,7 +112,7 @@ A scope prefix narrows the search to definitions under a specific parent scope, 
 ### Pipe filtering & processing
 
 8. **Filter out test code** — Rust/Go tests often coexist with source. Pipe through grep: `peek ... src/ | grep -v '#\[test\]' | grep -v 'tests::'`
-9. **`--json` + `jq` for structured queries** — `peek --json ... src/ | jq -r 'select(.type=="match") | "\(.data.path):\(.data.line_start) \(.data.scope)"'`. Extract scope list: `... | jq -r 'select(.type=="match") | .data.scope'`
+9. **`--json` enables structured post-processing** — Pipe NDJSON output to JSON CLI tools (e.g. `jq`, `python`, `node`) for filtering, aggregation, or extraction. Use this whenever you need to query across results rather than scan raw output.
 10. **`-l` for file-level discovery** — `peek -l {pattern} src/` lists matching files, then `peek ... {path}` on individual files for details.
 
 ## Exit Codes
