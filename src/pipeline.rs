@@ -110,6 +110,9 @@ pub fn search(
     let project_root = cache::find_project_root(&root).unwrap_or_else(|| root.clone());
     let cache_path = project_root.join(".peek-cache").join("cache.bin");
     let cache_index = CacheIndex::load(&cache_path);
+    if cache_index.is_none() && cache_path.exists() {
+        let _ = std::fs::remove_file(&cache_path);
+    }
 
     // Concurrent result collectors
     let results: Mutex<Vec<FileDefs>> = Mutex::new(Vec::new());
@@ -1006,6 +1009,39 @@ mod tests {
         assert_eq!(
             all_count, hit_count,
             "cache hit should produce same number of definitions as cache miss"
+        );
+    }
+
+    #[test]
+    fn corrupt_cache_file_deleted_on_load_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+
+        let cache_dir = tmp.path().join(".peek-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let cache_bin = cache_dir.join("cache.bin");
+
+        // Write a cache with wrong version — load will return None
+        let mut corrupt = vec![0u8; 16];
+        corrupt[0..4].copy_from_slice(&99u32.to_le_bytes());
+        std::fs::write(&cache_bin, &corrupt).unwrap();
+        assert!(cache_bin.exists());
+
+        let reg = build_registry();
+        let parsed = ParsedPattern::parse("nonexistent", CaseSensitivity::Sensitive).unwrap();
+        let _ = search(
+            &parsed,
+            &[DefKind::Function],
+            &[tmp.path()],
+            &[],
+            &SearchOptions::default(),
+            &reg,
+        )
+        .unwrap();
+
+        assert!(
+            !cache_bin.exists(),
+            "corrupt cache file should be deleted when load fails"
         );
     }
 }

@@ -4,8 +4,12 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - 'peek-code/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'peek-code/**'
 
 permissions:
   contents: read

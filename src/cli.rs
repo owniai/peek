@@ -87,7 +87,12 @@ pub fn reorder_cli_args(args: &[String]) -> Vec<String> {
 }
 
 #[derive(Parser)]
-#[command(name = "peek", about = "Search code definitions by name", version)]
+#[command(
+    name = "peek",
+    bin_name = "peek",
+    about = "Search code definitions by name",
+    version
+)]
 pub struct Cli {
     /// Definition types to search for (comma-separated: function,class,struct)
     #[arg(short = 'k', long = "kind", value_delimiter = ',')]
@@ -132,6 +137,14 @@ pub struct Cli {
     /// Suppress non-fatal error messages (traversal, read, and parse errors)
     #[arg(short = 'M', long = "no-messages")]
     no_messages: bool,
+
+    /// Always show file path with results (overrides --no-filename)
+    #[arg(short = 'H', long = "with-filename", conflicts_with = "no_filename")]
+    with_filename: bool,
+
+    /// Never show file path with results (overrides --with-filename)
+    #[arg(short = 'I', long = "no-filename", conflicts_with = "with_filename")]
+    no_filename: bool,
 
     /// Glob patterns to filter files (e.g., -g '*.rs', -g '!*.test.rs')
     /// Later globs override earlier globs; '!' prefix negates.
@@ -208,6 +221,14 @@ impl Cli {
 
     pub fn max_depth(&self) -> Option<usize> {
         self.max_depth
+    }
+
+    pub fn with_filename(&self) -> bool {
+        self.with_filename
+    }
+
+    pub fn no_filename(&self) -> bool {
+        self.no_filename
     }
 }
 
@@ -563,6 +584,46 @@ mod tests {
     fn no_messages_default_false() {
         let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
         assert!(!cli.no_messages());
+    }
+
+    // --- --with-filename / --no-filename flags ---
+
+    #[test]
+    fn with_filename_short() {
+        let cli = Cli::try_parse_from(["peek", "-H", "foo"]).unwrap();
+        assert!(cli.with_filename());
+        assert!(!cli.no_filename());
+    }
+
+    #[test]
+    fn with_filename_long() {
+        let cli = Cli::try_parse_from(["peek", "--with-filename", "foo"]).unwrap();
+        assert!(cli.with_filename());
+    }
+
+    #[test]
+    fn no_filename_short() {
+        let cli = Cli::try_parse_from(["peek", "-I", "foo"]).unwrap();
+        assert!(!cli.with_filename());
+        assert!(cli.no_filename());
+    }
+
+    #[test]
+    fn no_filename_long() {
+        let cli = Cli::try_parse_from(["peek", "--no-filename", "foo"]).unwrap();
+        assert!(cli.no_filename());
+    }
+
+    #[test]
+    fn reject_both_with_and_no_filename() {
+        assert!(Cli::try_parse_from(["peek", "-H", "-I", "foo"]).is_err());
+    }
+
+    #[test]
+    fn filename_flags_default_false() {
+        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
+        assert!(!cli.with_filename());
+        assert!(!cli.no_filename());
     }
 
     // --- reorder_cli_args ---

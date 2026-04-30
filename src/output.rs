@@ -9,9 +9,14 @@ const MAX_SIGNATURE_LEN: usize = 256;
 
 #[derive(Copy, Clone)]
 pub enum OutputMode {
-    Normal { no_signature: bool },
+    Normal {
+        no_signature: bool,
+        no_filename: bool,
+    },
     FilesOnly,
-    Count,
+    Count {
+        no_filename: bool,
+    },
 }
 
 pub fn format_output(_name: &str, _path: &str, result: &SearchResult, mode: OutputMode) -> String {
@@ -25,16 +30,24 @@ pub fn format_output(_name: &str, _path: &str, result: &SearchResult, mode: Outp
                     let _ = writeln!(out, "{}", relativize_path(&fd.file, &cwd));
                 }
             }
-            OutputMode::Count => {
+            OutputMode::Count { no_filename } => {
                 for fd in &result.definitions {
-                    let _ = writeln!(out, "{}:{}", relativize_path(&fd.file, &cwd), fd.defs.len());
+                    if no_filename {
+                        let _ = writeln!(out, "{}", fd.defs.len());
+                    } else {
+                        let _ =
+                            writeln!(out, "{}:{}", relativize_path(&fd.file, &cwd), fd.defs.len());
+                    }
                 }
             }
-            OutputMode::Normal { no_signature } => {
+            OutputMode::Normal {
+                no_signature,
+                no_filename,
+            } => {
                 for fd in &result.definitions {
                     let file = relativize_path(&fd.file, &cwd);
                     for def in &fd.defs {
-                        write_def(&mut out, &file, def, no_signature);
+                        write_def(&mut out, &file, def, no_signature, no_filename);
                         out.push('\n');
                     }
                 }
@@ -101,7 +114,7 @@ pub fn format_json_output(result: &SearchResult, mode: OutputMode) -> String {
                     out.push('\n');
                 }
             }
-            OutputMode::FilesOnly | OutputMode::Count => {}
+            OutputMode::FilesOnly | OutputMode::Count { .. } => {}
         }
 
         total_matched += fd.defs.len();
@@ -131,16 +144,31 @@ fn relativize_path<'a>(path: &'a Path, base: &Path) -> Cow<'a, str> {
     }
 }
 
-/// Format: `file:start-end [kind/scope] signature` (or without signature if `no_signature`).
-fn write_def(out: &mut String, file: &str, def: &crate::model::DefContent, no_signature: bool) {
+/// Format: `file:start-end [kind/scope] signature` (or without signature/filename).
+fn write_def(
+    out: &mut String,
+    file: &str,
+    def: &crate::model::DefContent,
+    no_signature: bool,
+    no_filename: bool,
+) {
     let kind = def.kind.display_tag();
     if no_signature {
-        write!(
-            out,
-            "{}:{}-{} [{}/{}]",
-            file, def.lines[0], def.lines[1], kind, def.scope
-        )
-        .unwrap();
+        if no_filename {
+            write!(
+                out,
+                "{}-{} [{}/{}]",
+                def.lines[0], def.lines[1], kind, def.scope
+            )
+            .unwrap();
+        } else {
+            write!(
+                out,
+                "{}:{}-{} [{}/{}]",
+                file, def.lines[0], def.lines[1], kind, def.scope
+            )
+            .unwrap();
+        }
     } else {
         let sig = truncate_str(&def.signature, MAX_SIGNATURE_LEN);
         let truncation = if def.signature.len() > MAX_SIGNATURE_LEN {
@@ -148,12 +176,21 @@ fn write_def(out: &mut String, file: &str, def: &crate::model::DefContent, no_si
         } else {
             ""
         };
-        write!(
-            out,
-            "{}:{}-{} [{}/{}] {}{}",
-            file, def.lines[0], def.lines[1], kind, def.scope, sig, truncation
-        )
-        .unwrap();
+        if no_filename {
+            write!(
+                out,
+                "{}-{} [{}/{}] {}{}",
+                def.lines[0], def.lines[1], kind, def.scope, sig, truncation
+            )
+            .unwrap();
+        } else {
+            write!(
+                out,
+                "{}:{}-{} [{}/{}] {}{}",
+                file, def.lines[0], def.lines[1], kind, def.scope, sig, truncation
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -252,6 +289,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         let lines: Vec<&str> = output.lines().collect();
@@ -282,6 +320,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(!output.contains("Found"));
@@ -301,6 +340,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(
@@ -334,6 +374,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         // Errors should NOT appear in stdout output
@@ -359,6 +400,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(!output.contains("failed to parse"));
@@ -390,6 +432,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         // Errors should NOT appear in stdout output
@@ -421,6 +464,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert_eq!(
@@ -451,6 +495,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert_eq!(
@@ -479,7 +524,10 @@ mod tests {
             "process",
             ".",
             &result,
-            OutputMode::Normal { no_signature: true },
+            OutputMode::Normal {
+                no_signature: true,
+                no_filename: false,
+            },
         );
         assert_eq!(output, "src/abc.py:45-62 [function/process]");
     }
@@ -501,7 +549,10 @@ mod tests {
             "Foo",
             "src/",
             &result,
-            OutputMode::Normal { no_signature: true },
+            OutputMode::Normal {
+                no_signature: true,
+                no_filename: false,
+            },
         );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines[0], "foo.py:1-5 [class/Foo]");
@@ -596,7 +647,12 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("foo", ".", &result, OutputMode::Count);
+        let output = format_output(
+            "foo",
+            ".",
+            &result,
+            OutputMode::Count { no_filename: false },
+        );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], "src/models.py:2");
@@ -610,7 +666,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("X", ".", &result, OutputMode::Count);
+        let output = format_output("X", ".", &result, OutputMode::Count { no_filename: false });
         assert!(output.is_empty());
     }
 
@@ -638,6 +694,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(output.contains("fn foo()"));
@@ -666,6 +723,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(output.ends_with("..."));
@@ -697,6 +755,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(!output.contains("..."));
@@ -724,6 +783,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         assert!(output.ends_with("..."));
@@ -783,6 +843,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         let expected_path = PathBuf::from_iter(["src", "models.py"]);
@@ -825,7 +886,12 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("Foo", ".", &result, OutputMode::Count);
+        let output = format_output(
+            "Foo",
+            ".",
+            &result,
+            OutputMode::Count { no_filename: false },
+        );
         let expected_path = PathBuf::from_iter(["src", "models.py"]);
         assert_eq!(output, format!("{}:2", expected_path.to_string_lossy()));
     }
@@ -849,6 +915,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         let messages = parse_json_lines(&output);
@@ -888,6 +955,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         let messages = parse_json_lines(&output);
@@ -957,7 +1025,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_json_output(&result, OutputMode::Count);
+        let output = format_json_output(&result, OutputMode::Count { no_filename: false });
         let messages = parse_json_lines(&output);
 
         // begin + end per file + summary
@@ -980,6 +1048,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         let messages = parse_json_lines(&output);
@@ -1010,6 +1079,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         let messages = parse_json_lines(&output);
@@ -1030,7 +1100,13 @@ mod tests {
             parse_failures: vec![],
         };
         // Even with no_signature=true, JSON output includes signature
-        let output = format_json_output(&result, OutputMode::Normal { no_signature: true });
+        let output = format_json_output(
+            &result,
+            OutputMode::Normal {
+                no_signature: true,
+                no_filename: false,
+            },
+        );
         let messages = parse_json_lines(&output);
 
         let match_msg = messages.iter().find(|m| m["type"] == "match").unwrap();
@@ -1055,6 +1131,7 @@ mod tests {
             &result,
             OutputMode::Normal {
                 no_signature: false,
+                no_filename: false,
             },
         );
         for line in output.lines() {
@@ -1116,5 +1193,139 @@ mod tests {
         let mut buf = Vec::new();
         write_errors(&mut buf, &result, false);
         assert!(buf.is_empty());
+    }
+
+    // --- no_filename mode ---
+
+    #[test]
+    fn normal_mode_no_filename_with_signature() {
+        let result = SearchResult {
+            definitions: vec![make_fd(
+                "src/abc.py",
+                vec![make_def(
+                    DefKind::Function,
+                    "def process() -> bool",
+                    45,
+                    62,
+                    "process",
+                )],
+            )],
+            read_errors: vec![],
+            parse_failures: vec![],
+        };
+        let output = format_output(
+            "process",
+            ".",
+            &result,
+            OutputMode::Normal {
+                no_signature: false,
+                no_filename: true,
+            },
+        );
+        assert_eq!(output, "45-62 [function/process] def process() -> bool");
+        assert!(!output.contains("src/abc.py"));
+    }
+
+    #[test]
+    fn normal_mode_no_filename_without_signature() {
+        let result = SearchResult {
+            definitions: vec![make_fd(
+                "src/abc.py",
+                vec![make_def(
+                    DefKind::Function,
+                    "def process() -> bool",
+                    45,
+                    62,
+                    "process",
+                )],
+            )],
+            read_errors: vec![],
+            parse_failures: vec![],
+        };
+        let output = format_output(
+            "process",
+            ".",
+            &result,
+            OutputMode::Normal {
+                no_signature: true,
+                no_filename: true,
+            },
+        );
+        assert_eq!(output, "45-62 [function/process]");
+    }
+
+    #[test]
+    fn normal_mode_no_filename_multiple_defs() {
+        let result = SearchResult {
+            definitions: vec![make_fd(
+                "foo.py",
+                vec![
+                    make_def(DefKind::Class, "class Foo", 1, 5, "Foo"),
+                    make_def(DefKind::Function, "def bar()", 10, 20, "Foo.bar"),
+                ],
+            )],
+            read_errors: vec![],
+            parse_failures: vec![],
+        };
+        let output = format_output(
+            "Foo",
+            "src/",
+            &result,
+            OutputMode::Normal {
+                no_signature: false,
+                no_filename: true,
+            },
+        );
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines[0], "1-5 [class/Foo] class Foo");
+        assert_eq!(lines[1], "10-20 [function/Foo.bar] def bar()");
+    }
+
+    #[test]
+    fn count_mode_no_filename() {
+        let result = SearchResult {
+            definitions: vec![make_fd(
+                "src/models.py",
+                vec![
+                    make_def(DefKind::Class, "class Foo", 1, 5, "Foo"),
+                    make_def(DefKind::Function, "def bar()", 10, 20, "Foo.bar"),
+                ],
+            )],
+            read_errors: vec![],
+            parse_failures: vec![],
+        };
+        let output = format_output("foo", ".", &result, OutputMode::Count { no_filename: true });
+        assert_eq!(output, "2");
+    }
+
+    #[test]
+    fn count_mode_no_filename_multiple_files() {
+        let result = SearchResult {
+            definitions: vec![
+                make_fd(
+                    "src/models.py",
+                    vec![
+                        make_def(DefKind::Class, "class Foo", 1, 5, "Foo"),
+                        make_def(DefKind::Function, "def bar()", 10, 20, "Foo.bar"),
+                    ],
+                ),
+                make_fd(
+                    "src/handler.py",
+                    vec![make_def(
+                        DefKind::Function,
+                        "def process()",
+                        15,
+                        30,
+                        "process",
+                    )],
+                ),
+            ],
+            read_errors: vec![],
+            parse_failures: vec![],
+        };
+        let output = format_output("foo", ".", &result, OutputMode::Count { no_filename: true });
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines[0], "2");
+        assert_eq!(lines[1], "1");
     }
 }

@@ -21,7 +21,6 @@ const OFF_DATA_OFFSET: usize = 24;
 const OFF_DATA_LEN: usize = 28;
 
 const MAX_SIG_LEN: usize = 1024; // UTF-8 bytes (u16 prefix, max 65535 but we cap)
-const MAX_SCOPE_LEN: usize = 1024;
 
 // ---------------------------------------------------------------------------
 // IndexEntry — read from &[u8], zero-allocation
@@ -221,12 +220,10 @@ pub(crate) fn encode_defs(defs: &[DefContent]) -> Vec<u8> {
         buf.extend_from_slice(&(sig_trunc.len() as u16).to_le_bytes());
         buf.extend_from_slice(sig_trunc);
 
-        // Truncate to MAX_SCOPE_LEN at a valid UTF-8 char boundary.
-        let scope_end = def.scope.len().min(MAX_SCOPE_LEN);
-        let scope_end = floor_char_boundary(&def.scope, scope_end);
-        let scope_trunc = &def.scope.as_bytes()[..scope_end];
-        buf.extend_from_slice(&(scope_trunc.len() as u16).to_le_bytes());
-        buf.extend_from_slice(scope_trunc);
+        // Scope is written in full (no truncation).
+        let scope_bytes = def.scope.as_bytes();
+        buf.extend_from_slice(&(scope_bytes.len() as u16).to_le_bytes());
+        buf.extend_from_slice(scope_bytes);
     }
     buf
 }
@@ -257,7 +254,7 @@ fn decode_defs_from_slice(slice: &[u8]) -> Option<Vec<DefContent>> {
         let end_line = read_u32_from(slice, &mut pos)?;
 
         let sig = read_u16_string_from(slice, &mut pos, MAX_SIG_LEN)?;
-        let scope = read_u16_string_from(slice, &mut pos, MAX_SCOPE_LEN)?;
+        let scope = read_u16_string_from(slice, &mut pos, u16::MAX as usize)?;
 
         defs.push(DefContent {
             kind,
@@ -282,10 +279,6 @@ pub(crate) fn truncate_defs(defs: &mut [DefContent]) {
         let sig_end = def.signature.len().min(MAX_SIG_LEN);
         let sig_end = floor_char_boundary(&def.signature, sig_end);
         def.signature.truncate(sig_end);
-
-        let scope_end = def.scope.len().min(MAX_SCOPE_LEN);
-        let scope_end = floor_char_boundary(&def.scope, scope_end);
-        def.scope.truncate(scope_end);
     }
 }
 
@@ -958,18 +951,16 @@ mod tests {
     }
 
     #[test]
-    fn encode_defs_truncates_scope_at_utf8_boundary() {
-        // Same as above but for scope field.
+    fn encode_defs_preserves_full_scope_no_truncation() {
+        // Scope is no longer truncated — it should round-trip in full.
         let cjk_char = '漢';
-        let char_count = MAX_SCOPE_LEN / 3 + 1;
-        let long_scope: String = std::iter::repeat_n(cjk_char, char_count).collect();
-        assert!(long_scope.len() > MAX_SCOPE_LEN);
+        let long_scope: String = std::iter::repeat_n(cjk_char, 500).collect(); // 1500 bytes
 
         let defs = vec![DefContent {
             kind: DefKind::Function,
             lines: [1, 1],
             signature: "sig".to_string(),
-            scope: long_scope,
+            scope: long_scope.clone(),
         }];
         let encoded = encode_defs(&defs);
         let entry = IndexEntry {
@@ -980,13 +971,12 @@ mod tests {
             data_len: encoded.len() as u32,
         };
         let decoded = decode_data(&encoded, &entry);
-        assert!(
-            decoded.is_some(),
-            "decode must succeed — scope truncation should be at a valid UTF-8 boundary"
-        );
+        assert!(decoded.is_some(), "decode must succeed for long scope");
         let decoded = decoded.unwrap();
-        assert!(decoded[0].scope.len() <= MAX_SCOPE_LEN);
-        assert!(decoded[0].scope.is_char_boundary(decoded[0].scope.len()));
+        assert_eq!(
+            decoded[0].scope, long_scope,
+            "scope must be preserved in full"
+        );
     }
 
     #[test]
@@ -1024,14 +1014,14 @@ mod tests {
     }
 
     #[test]
-    fn encode_decode_round_trip_scope_exceeds_max_scope_len() {
-        // Regression test: scope exceeding MAX_SCOPE_LEN must still round-trip.
-        let long_scope = "y".repeat(MAX_SCOPE_LEN + 100);
+    fn encode_decode_round_trip_scope_not_truncated() {
+        // Scope is no longer truncated — long scope must round-trip in full.
+        let long_scope = "y".repeat(2000);
         let defs = vec![DefContent {
             kind: DefKind::Function,
             lines: [1, 1],
             signature: "sig".to_string(),
-            scope: long_scope,
+            scope: long_scope.clone(),
         }];
         let encoded = encode_defs(&defs);
         assert!(
@@ -1048,26 +1038,28 @@ mod tests {
         let decoded = decode_data(&encoded, &entry);
         assert!(
             decoded.is_some(),
-            "decode_data should succeed for truncated long scope"
+            "decode_data should succeed for long scope"
         );
         let decoded = decoded.unwrap();
-        assert_eq!(decoded[0].scope.len(), MAX_SCOPE_LEN);
+        assert_eq!(
+            decoded[0].scope, long_scope,
+            "scope must be preserved in full"
+        );
     }
 
     #[test]
-    fn truncate_defs_truncates_long_signature_and_scope() {
+    fn truncate_defs_truncates_long_signature_only() {
+        let long_scope = "y".repeat(2000);
         let mut defs = vec![DefContent {
             kind: DefKind::Function,
             lines: [1, 1],
             signature: "x".repeat(MAX_SIG_LEN + 100),
-            scope: "y".repeat(MAX_SCOPE_LEN + 100),
+            scope: long_scope.clone(),
         }];
         truncate_defs(&mut defs);
         assert!(defs[0].signature.len() <= MAX_SIG_LEN);
-        assert!(defs[0].scope.len() <= MAX_SCOPE_LEN);
-        // Truncated values must be valid UTF-8
+        assert_eq!(defs[0].scope, long_scope, "scope must not be truncated");
         assert!(defs[0].signature.is_char_boundary(defs[0].signature.len()));
-        assert!(defs[0].scope.is_char_boundary(defs[0].scope.len()));
     }
 
     #[test]
@@ -1086,8 +1078,9 @@ mod tests {
     #[test]
     fn truncate_defs_matches_encode_decode_round_trip() {
         // After truncate_defs + encode_defs + decode_data, values must be identical.
+        // Scope is no longer truncated, so it should round-trip in full.
         let long_sig = "x".repeat(MAX_SIG_LEN + 50);
-        let long_scope = "y".repeat(MAX_SCOPE_LEN + 50);
+        let long_scope = "y".repeat(2000);
         let mut defs = vec![DefContent {
             kind: DefKind::Function,
             lines: [1, 1],
@@ -1095,6 +1088,14 @@ mod tests {
             scope: long_scope,
         }];
         truncate_defs(&mut defs);
+
+        // Scope must not be truncated — signature should be truncated.
+        assert_eq!(
+            defs[0].scope.len(),
+            2000,
+            "scope must not be truncated by truncate_defs"
+        );
+        assert!(defs[0].signature.len() <= MAX_SIG_LEN);
 
         // Encode and decode
         let encoded = encode_defs(&defs);

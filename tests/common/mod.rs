@@ -12,8 +12,9 @@ pub struct DefLine {
     pub end: usize,
 }
 
-static DEF_LINE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([^:]+):(\d+)-(\d+) \[(\w+)/([^\]]+)\](?: (.*))?").unwrap());
+static DEF_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:(?:[^:]+):)?(\d+)-(\d+) \[(\w+)/([^\]]+)\](?: (.*))?").unwrap()
+});
 
 /// Run peek binary with given arguments.
 #[allow(dead_code)]
@@ -32,7 +33,7 @@ pub fn peek_stdout(args: &[&str]) -> String {
 }
 
 /// Parse definition lines from peek output.
-/// Skips the summary line, parses lines matching: `file:start-end [kind/scope] signature`
+/// Handles both formats: `file:start-end [kind/scope] signature` and `start-end [kind/scope] signature`
 #[allow(dead_code)]
 pub fn parse_defs(stdout: &str) -> Vec<DefLine> {
     stdout
@@ -40,14 +41,14 @@ pub fn parse_defs(stdout: &str) -> Vec<DefLine> {
         .filter_map(|line| {
             let caps = DEF_LINE_RE.captures(line)?;
             Some(DefLine {
-                kind: caps[4].to_string(),
-                scope: caps[5].to_string(),
+                kind: caps[3].to_string(),
+                scope: caps[4].to_string(),
                 signature: caps
-                    .get(6)
+                    .get(5)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default(),
-                start: caps[2].parse().ok()?,
-                end: caps[3].parse().ok()?,
+                start: caps[1].parse().ok()?,
+                end: caps[2].parse().ok()?,
             })
         })
         .collect()

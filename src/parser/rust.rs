@@ -24,7 +24,6 @@ impl LanguageParser for RustParser {
             DefKind::Type,
             DefKind::Trait,
             DefKind::Const,
-            DefKind::Static,
             DefKind::Macro,
             DefKind::Module,
         ]
@@ -48,7 +47,6 @@ fn kind_for_node(node: Node) -> Option<DefKind> {
         "type_item" => Some(DefKind::Type),
         "trait_item" => Some(DefKind::Trait),
         "const_item" => Some(DefKind::Const),
-        "static_item" => Some(DefKind::Static),
         "macro_definition" => Some(DefKind::Macro),
         "mod_item" => Some(DefKind::Module),
         _ => None,
@@ -240,14 +238,6 @@ mod tests {
         let results = extract_definitions(&RustParser, "Foo", &[DefKind::Const], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, DefKind::Const);
-    }
-
-    #[test]
-    fn static_not_matched_by_const() {
-        let src = "const A: i32 = 1; static A: i32 = 2;";
-        let results = extract_definitions(&RustParser, "A", &[DefKind::Static], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Static);
     }
 
     #[test]

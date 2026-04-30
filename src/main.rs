@@ -39,6 +39,26 @@ fn is_broken_pipe(err: &anyhow::Error) -> bool {
     })
 }
 
+/// Determine whether to suppress filename in output, following ripgrep conventions:
+/// - Single file (not directory) search: suppress by default
+/// - Directory/multi-path search: show by default
+/// - `--with-filename` / `-H`: force show (overrides default and --no-filename)
+/// - `--no-filename` / `-I`: force suppress (overrides default)
+fn should_suppress_filename(paths: &[&Path], with_filename: bool, no_filename: bool) -> bool {
+    if no_filename {
+        return true;
+    }
+    if with_filename {
+        return false;
+    }
+    // Default: suppress when searching a single regular file
+    if paths.len() == 1 {
+        paths[0].is_file()
+    } else {
+        false
+    }
+}
+
 fn try_main() -> anyhow::Result<ExitCode> {
     let args: Vec<String> = std::env::args().collect();
     let cli = Cli::parse_from(reorder_cli_args(&args));
@@ -110,9 +130,22 @@ fn try_main() -> anyhow::Result<ExitCode> {
     let output_mode = if cli.files_with_matches() {
         OutputMode::FilesOnly
     } else if cli.count() {
-        OutputMode::Count
+        OutputMode::Count {
+            no_filename: should_suppress_filename(
+                &search_paths,
+                cli.with_filename(),
+                cli.no_filename(),
+            ),
+        }
     } else {
-        OutputMode::Normal { no_signature }
+        OutputMode::Normal {
+            no_signature,
+            no_filename: should_suppress_filename(
+                &search_paths,
+                cli.with_filename(),
+                cli.no_filename(),
+            ),
+        }
     };
 
     // Single search call for all paths (WalkBuilder::add() handles multi-path internally).

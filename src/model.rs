@@ -41,7 +41,6 @@ define_def_kinds!(
     Trait => "trait",
     Interface => "interface",
     Const => "const",
-    Static => "static",
     Record => "record",
     Delegate => "delegate",
     Event => "event",
@@ -54,9 +53,9 @@ define_def_kinds!(
     Macro => "macro",
 );
 
-// Compile-time assertion: discriminants must be sequential 0..18
+// Compile-time assertion: discriminants must be sequential 0..17
 const _: () = assert!(
-    DefKind::Function as u8 == 0 && DefKind::Macro as u8 == 18,
+    DefKind::Function as u8 == 0 && DefKind::Macro as u8 == 17,
     "DefKind discriminants must be sequential starting from 0"
 );
 
@@ -164,8 +163,8 @@ mod tests {
     }
 
     #[test]
-    fn all_count_is_nineteen() {
-        assert_eq!(DefKind::all().len(), 19);
+    fn all_count_is_eighteen() {
+        assert_eq!(DefKind::all().len(), 18);
     }
 
     #[test]
@@ -239,6 +238,6 @@ mod tests {
     #[test]
     fn def_kind_from_u8_rejects_unknown() {
         assert_eq!(DefKind::from_u8(255), None);
-        assert_eq!(DefKind::from_u8(19), None);
+        assert_eq!(DefKind::from_u8(18), None);
     }
 }
