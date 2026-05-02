@@ -49,9 +49,11 @@ fn collect_definitions<'a>(
         }
         "type_declaration" => {
             handle_type_declaration(node, source, mode, kinds, results);
+            return;
         }
         "const_declaration" => {
             handle_const_declaration(node, source, mode, kinds, results);
+            return;
         }
         _ => {}
     }
@@ -183,7 +185,7 @@ fn handle_type_declaration<'a>(
 }
 
 fn handle_type_spec<'a>(
-    type_decl: Node<'a>,
+    _type_decl: Node<'a>,
     type_spec: Node<'a>,
     source: &str,
     mode: &MatchMode,
@@ -229,17 +231,17 @@ fn handle_type_spec<'a>(
             let body = first_child_by_kind(*type_field.as_ref().unwrap(), "field_declaration_list");
             let end_byte = body
                 .map(|b| b.start_byte())
-                .unwrap_or_else(|| type_decl.end_byte());
-            flatten_bytes(type_decl.start_byte(), end_byte, source)
-                .unwrap_or_else(|| first_line_of_node(type_decl, source))
+                .unwrap_or_else(|| type_spec.end_byte());
+            flatten_bytes(type_spec.start_byte(), end_byte, source)
+                .unwrap_or_else(|| first_line_of_node(type_spec, source))
         }
         "interface_type" => {
             let iface = type_field.as_ref().unwrap();
             let end_byte = find_opening_brace(*iface);
-            flatten_bytes(type_decl.start_byte(), end_byte, source)
-                .unwrap_or_else(|| first_line_of_node(type_decl, source))
+            flatten_bytes(type_spec.start_byte(), end_byte, source)
+                .unwrap_or_else(|| first_line_of_node(type_spec, source))
         }
-        _ => first_line_of_node(type_decl, source),
+        _ => first_line_of_node(type_spec, source),
     };
 
     let start_row = type_spec.start_position().row + 1;
@@ -398,14 +400,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    // --- Meta tests ---
-
-    #[test]
-    fn extensions_cover_go() {
-        let p = GoParser;
-        assert!(p.extensions().contains(&".go"));
-    }
-
     // --- Bug: grouped type declaration line range ---
 
     #[test]
@@ -438,6 +432,31 @@ mod tests {
         assert_eq!(
             results[0].lines[0], 3,
             "start line should be 3 (where GroupedInt is defined), not 1 (where 'type (' is)"
+        );
+    }
+
+    #[test]
+    fn grouped_type_no_duplicate_extraction() {
+        let src = "package p\n\ntype (\n\tFoo struct { X int }\n\tBar interface { Do() }\n\tAlias int\n)\n\ntype Standalone struct { Y int }";
+        let all_kinds = &[DefKind::Struct, DefKind::Interface, DefKind::Type];
+        let results = extract_definitions(&GoParser, "", all_kinds, src);
+        let scopes: Vec<&str> = results.iter().map(|r| r.scope.as_str()).collect();
+        assert_eq!(
+            results.len(),
+            4,
+            "expected exactly 4 definitions, got {scopes:?}"
+        );
+    }
+
+    #[test]
+    fn grouped_const_no_duplicate_extraction() {
+        let src = "package p\n\nconst (\n\tA = 1\n\tB = 2\n\tC = 3\n)\n\nconst D = 4";
+        let results = extract_definitions(&GoParser, "", &[DefKind::Const], src);
+        let scopes: Vec<&str> = results.iter().map(|r| r.scope.as_str()).collect();
+        assert_eq!(
+            results.len(),
+            4,
+            "expected exactly 4 constants, got {scopes:?}"
         );
     }
 }

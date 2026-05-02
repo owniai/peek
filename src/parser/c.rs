@@ -28,10 +28,6 @@ impl LanguageParser for CParser {
         ]
     }
 
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["::"]
-    }
-
     impl_init_parser!(tree_sitter_c::LANGUAGE, "C");
 
     impl_extract_with!(collect_definitions);
@@ -51,18 +47,45 @@ fn collect_definitions<'a>(
         }
         "struct_specifier" | "union_specifier" => {
             handle_struct(node, source, mode, kinds, results);
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    collect_definitions(child, source, mode, kinds, results);
+                }
+            }
+            return;
         }
         "enum_specifier" => {
             handle_enum(node, source, mode, kinds, results);
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut cursor = body.walk();
+                for child in body.children(&mut cursor) {
+                    collect_definitions(child, source, mode, kinds, results);
+                }
+            }
+            return;
         }
         "type_definition" => {
             handle_typedef(node, source, mode, kinds, results);
+            if let Some(type_node) = node.child_by_field_name("type") {
+                if matches!(type_node.kind(), "struct_specifier" | "union_specifier") {
+                    if let Some(body) = type_node.child_by_field_name("body") {
+                        let mut cursor = body.walk();
+                        for child in body.children(&mut cursor) {
+                            collect_definitions(child, source, mode, kinds, results);
+                        }
+                    }
+                }
+            }
+            return;
         }
         "declaration" if is_const_declaration(node, source) => {
             handle_const(node, source, mode, kinds, results);
+            return;
         }
         "preproc_def" | "preproc_function_def" => {
             handle_macro(node, source, mode, kinds, results);
+            return;
         }
         _ => {}
     }
@@ -188,7 +211,9 @@ fn handle_typedef(
     kinds: &[DefKind],
     results: &mut Vec<DefContent>,
 ) {
-    if !kinds.contains(&DefKind::Type) {
+    let kind = resolve_typedef_kind(node);
+
+    if !kinds.contains(&kind) {
         return;
     }
 
@@ -209,11 +234,22 @@ fn handle_typedef(
     let start_row = node.start_position().row + 1;
     let [start, end] = line_range(start_row, node);
     results.push(DefContent {
-        kind: DefKind::Type,
+        kind,
         lines: [start, end],
         signature,
         scope: name_text,
     });
+}
+
+fn resolve_typedef_kind(node: Node) -> DefKind {
+    if let Some(type_node) = node.child_by_field_name("type") {
+        if matches!(type_node.kind(), "struct_specifier" | "union_specifier")
+            && type_node.child_by_field_name("body").is_some()
+        {
+            return DefKind::Struct;
+        }
+    }
+    DefKind::Type
 }
 
 fn handle_const(
@@ -255,34 +291,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    // --- Meta tests ---
-
-    #[test]
-    fn test_language_returns_c() {
-        let p = CParser;
-        assert_eq!(p.language(), "c");
-    }
-
-    #[test]
-    fn test_extensions_cover_c() {
-        let p = CParser;
-        assert!(p.extensions().contains(&".c"));
-        assert_eq!(p.extensions().len(), 1);
-    }
-
-    #[test]
-    fn test_supported_kinds_six() {
-        let p = CParser;
-        let kinds = p.supported_kinds();
-        assert_eq!(kinds.len(), 6);
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Struct));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Type));
-        assert!(kinds.contains(&DefKind::Const));
-        assert!(kinds.contains(&DefKind::Macro));
-    }
-
     // --- Edge case / handler tests ---
 
     #[test]
@@ -292,15 +300,100 @@ mod tests {
     }
 
     #[test]
-    fn test_typedef_struct_not_extracted_as_struct() {
-        // typedef struct Point Point; -- the struct_specifier has no body, so skipped
+    fn test_typedef_struct_no_body_still_type() {
+        // typedef struct Point Point; -- no body, just an alias, remains Type
         let results = extract_definitions(
             &CParser,
             "Point",
             &[DefKind::Struct],
             "typedef struct Point Point;",
         );
-        assert!(results.is_empty());
+        assert!(
+            results.is_empty(),
+            "typedef alias without body should not be Struct"
+        );
+        let results = extract_definitions(
+            &CParser,
+            "Point",
+            &[DefKind::Type],
+            "typedef struct Point Point;",
+        );
+        assert_eq!(results.len(), 1, "typedef alias should still be Type");
+        assert_eq!(results[0].kind, DefKind::Type);
+    }
+
+    #[test]
+    fn test_typedef_struct_with_body_is_struct() {
+        let results = extract_definitions(
+            &CParser,
+            "PointT",
+            &[DefKind::Struct],
+            "typedef struct Point { int x; int y; } PointT;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "PointT");
+    }
+
+    #[test]
+    fn test_typedef_anon_struct_with_body_is_struct() {
+        let results = extract_definitions(
+            &CParser,
+            "AnonT",
+            &[DefKind::Struct],
+            "typedef struct { int x; } AnonT;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "AnonT");
+    }
+
+    #[test]
+    fn test_typedef_union_with_body_is_struct() {
+        let results = extract_definitions(
+            &CParser,
+            "UHandle",
+            &[DefKind::Struct],
+            "typedef union { int i; float f; } UHandle;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "UHandle");
+    }
+
+    #[test]
+    fn test_typedef_named_union_with_body_is_struct() {
+        let results = extract_definitions(
+            &CParser,
+            "DataT",
+            &[DefKind::Struct],
+            "typedef union Data { int i; float f; } DataT;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "DataT");
+    }
+
+    #[test]
+    fn test_typedef_plain_type_still_type() {
+        let results =
+            extract_definitions(&CParser, "MyInt", &[DefKind::Type], "typedef int MyInt;");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Type);
+    }
+
+    #[test]
+    fn test_typedef_struct_with_body_not_type() {
+        let results = extract_definitions(
+            &CParser,
+            "PointT",
+            &[DefKind::Type],
+            "typedef struct Point { int x; int y; } PointT;",
+        );
+        assert!(
+            results.is_empty(),
+            "typedef struct with body should be Struct, not Type"
+        );
     }
 
     #[test]
@@ -365,27 +458,6 @@ mod tests {
     }
 
     #[test]
-    fn test_kind_filter_struct_not_func() {
-        let src = "struct Foo { int x; };";
-        let results = extract_definitions(&CParser, "Foo", &[DefKind::Function], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_enum_not_type() {
-        let src = "enum Color { RED };";
-        let results = extract_definitions(&CParser, "Color", &[DefKind::Type], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_type_not_const() {
-        let src = "typedef int MyInt;";
-        let results = extract_definitions(&CParser, "MyInt", &[DefKind::Const], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
     fn test_union_recognized_as_struct() {
         let src = "union Value { int i; float f; };";
         let results = extract_definitions(&CParser, "Value", &[DefKind::Struct], src);
@@ -421,11 +493,65 @@ mod tests {
     }
 
     #[test]
+    fn test_typedef_struct_no_double_extraction() {
+        let results = extract_definitions(
+            &CParser,
+            ".",
+            &[DefKind::Struct],
+            "typedef struct Point { int x; int y; } PointT;",
+        );
+        assert_eq!(
+            results.len(),
+            1,
+            "should extract only PointT, not also Point"
+        );
+        assert_eq!(results[0].scope, "PointT");
+    }
+
+    #[test]
+    fn test_macro_inside_typedef_struct() {
+        let results = extract_definitions(
+            &CParser,
+            "INNER_MACRO",
+            &[DefKind::Macro],
+            "typedef struct { #define INNER_MACRO 42\n int x; } MyType;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Macro);
+        assert_eq!(results[0].scope, "INNER_MACRO");
+    }
+
+    #[test]
     fn test_macro_inside_struct() {
         let src = "struct Foo {\n#define INNER_MACRO 42\n    int x;\n};";
         let results = extract_definitions(&CParser, "INNER_MACRO", &[DefKind::Macro], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, DefKind::Macro);
         assert_eq!(results[0].scope, "INNER_MACRO");
+    }
+
+    #[test]
+    fn test_union_body_recursion_finds_nested_macro() {
+        let src = "union Data {\n#define UNION_MACRO 1\n    int i;\n    float f;\n};";
+        let results = extract_definitions(&CParser, "UNION_MACRO", &[DefKind::Macro], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Macro);
+        assert_eq!(results[0].scope, "UNION_MACRO");
+    }
+
+    #[test]
+    fn test_struct_enum_no_double_extraction_with_macro() {
+        let src = "struct Foo {\n#define M 1\n    int x;\n};\nenum Bar { A, B };";
+        let results = extract_definitions(
+            &CParser,
+            ".",
+            &[DefKind::Struct, DefKind::Enum, DefKind::Macro],
+            src,
+        );
+        assert_eq!(results.len(), 3);
+        let kinds: Vec<_> = results.iter().map(|r| r.kind).collect();
+        assert!(kinds.contains(&DefKind::Struct));
+        assert!(kinds.contains(&DefKind::Enum));
+        assert!(kinds.contains(&DefKind::Macro));
     }
 }

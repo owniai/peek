@@ -220,6 +220,60 @@ fn peek_for_dart_top_level_const() {
     );
 }
 
+// === Dart function end line tests ===
+// Verify that function definitions with multi-line bodies report correct end lines.
+// In tree-sitter-dart, function_signature and function_body are siblings,
+// so line_range must include the function_body sibling's end position.
+
+#[test]
+fn peek_for_dart_class_method_end_line() {
+    // greet spans lines 29-31 in the fixture
+    let output = peek(&["-k", "function", "greet", "tests/fixtures/dart"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    let def = results
+        .iter()
+        .find(|r| r.scope == "UserService.greet")
+        .unwrap();
+    assert_eq!(def.start, 29, "greet should start at line 29");
+    assert_eq!(
+        def.end, 31,
+        "greet should end at line 31 (includes function body)"
+    );
+}
+
+#[test]
+fn peek_for_dart_single_line_functions_unchanged() {
+    // Single-line and abstract definitions should have start == end
+    let output = peek(&["-k", "function", "...", "tests/fixtures/dart"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+
+    // Abstract method: void process() — line 47, no body
+    let abstract_method = results
+        .iter()
+        .find(|r| r.scope == "BaseProcessor.process")
+        .unwrap();
+    assert_eq!(
+        abstract_method.start, abstract_method.end,
+        "abstract method should have start == end, got {}-{}",
+        abstract_method.start, abstract_method.end
+    );
+
+    // Getter with expression body: String get displayName — line 34
+    let getter = results
+        .iter()
+        .find(|r| r.scope == "UserService.displayName" && r.signature.starts_with("String get"))
+        .unwrap();
+    assert_eq!(
+        getter.start, getter.end,
+        "single-line getter should have start == end, got {}-{}",
+        getter.start, getter.end
+    );
+}
+
 // === Function-body definitions should NOT be extracted ===
 
 #[test]

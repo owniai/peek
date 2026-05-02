@@ -81,16 +81,20 @@ fn peek_for_js_generator_func() {
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    let def = &results[0];
+    assert_eq!(def.kind, "function");
+    assert_eq!(def.scope, "genFunc");
 }
 
 #[test]
 fn peek_for_js_arrow_const() {
-    let output = peek(&["-k", "function", "arrowFunc", "tests/fixtures/js"]);
+    let output = peek(&["-w", "-k", "function", "arrowFunc", "tests/fixtures/js"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].scope, "arrowFunc");
 }
 
 // === False positive tests ===

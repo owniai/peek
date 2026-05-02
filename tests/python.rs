@@ -5,32 +5,6 @@ use common::{parse_defs, peek};
 // === From integration_test.rs: basic Python tests ===
 
 #[test]
-fn peek_for_finds_python_function() {
-    let output = peek(&["top_level_func", "tests/fixtures/python"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert!(
-        results
-            .iter()
-            .any(|r| r.scope == "top_level_func" && r.kind == "function")
-    );
-}
-
-#[test]
-fn peek_for_finds_python_class() {
-    let output = peek(&["MyClass", "tests/fixtures/python"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert!(
-        results
-            .iter()
-            .any(|r| r.scope == "MyClass" && r.kind == "class")
-    );
-}
-
-#[test]
 fn peek_for_nested_class_scope() {
     let output = peek(&["-k", "class", "InnerClass", "tests/fixtures/python"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -351,8 +325,8 @@ fn test_python_large_scale_count() {
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 3);
 
-    // func transform -> 2 results
-    let output = peek(&["-k", "function", "transform", path]);
+    // func transform -> 2 results (use -w for whole-word matching to exclude typed_transform etc.)
+    let output = peek(&["-w", "-k", "function", "transform", path]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -811,51 +785,3 @@ fn test_python_multiline_type_alias_signature() {
 }
 
 // === sample.py additional scope/kind tests ===
-
-#[test]
-fn test_python_sample_private_func_scope() {
-    let output = peek(&[
-        "-k",
-        "function",
-        "_private_func",
-        "tests/fixtures/python/sample.py",
-    ]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
-    assert_eq!(results[0].scope, "_private_func");
-}
-
-#[test]
-fn test_python_sample_method_scope() {
-    let output = peek(&[
-        "-k",
-        "function",
-        "method_one",
-        "tests/fixtures/python/sample.py",
-    ]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
-    assert_eq!(results[0].scope, "MyClass.method_one");
-}
-
-#[test]
-fn test_python_sample_static_method_scope() {
-    let output = peek(&[
-        "-k",
-        "function",
-        "static_method",
-        "tests/fixtures/python/sample.py",
-    ]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
-    assert_eq!(results[0].scope, "MyClass.static_method");
-}

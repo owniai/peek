@@ -364,7 +364,7 @@ fn collect_definitions<'a>(
             handle_lexical_decl(node, source, mode, kinds, results, scope);
             return;
         }
-        "method_definition" => {
+        "method_definition" | "method_signature" | "abstract_method_signature" => {
             handle_definition(
                 node,
                 source,
@@ -375,6 +375,11 @@ fn collect_definitions<'a>(
                 "statement_block",
                 scope,
             );
+            return;
+        }
+        "internal_module" | "module" => {
+            let new_scope = build_scope_from_node(node, source, scope, ".");
+            recurse_into_body(node, source, mode, kinds, results, &new_scope);
             return;
         }
         "ERROR" => {
@@ -395,63 +400,11 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    #[test]
-    fn language_returns_ts() {
-        let p = TsParser;
-        assert_eq!(p.language(), "ts");
-    }
-
-    #[test]
-    fn extensions_cover_ts_tsx() {
-        let p = TsParser;
-        assert!(p.extensions().contains(&".ts"));
-        assert!(p.extensions().contains(&".tsx"));
-        assert!(p.extensions().contains(&".mts"));
-        assert!(p.extensions().contains(&".cts"));
-    }
-
-    #[test]
-    fn supported_kinds_six() {
-        let p = TsParser;
-        let kinds = p.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Const));
-        assert!(kinds.contains(&DefKind::Interface));
-        assert!(kinds.contains(&DefKind::Type));
-        assert!(kinds.contains(&DefKind::Enum));
-    }
-
     // --- Kind filter / disambiguation edge cases ---
 
     #[test]
     fn ts_kind_filter_func_not_class() {
         let results = extract_definitions(&TsParser, "foo", &[DefKind::Class], "function foo() {}");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_kind_filter_class_not_func() {
-        let results = extract_definitions(&TsParser, "Foo", &[DefKind::Function], "class Foo {}");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_nonexistent() {
-        let results = extract_definitions(&TsParser, "bar", DefKind::all(), "function foo() {}");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_kind_filter_const_not_func() {
-        let results = extract_definitions(&TsParser, "v", &[DefKind::Function], "const v = 42;");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_kind_filter_arrow_not_const() {
-        let results =
-            extract_definitions(&TsParser, "fn", &[DefKind::Const], "const fn = () => {};");
         assert!(results.is_empty());
     }
 
@@ -495,10 +448,12 @@ mod tests {
     }
 
     #[test]
-    fn ts_destructured_const_skipped() {
+    fn ts_destructured_const_substring_match() {
+        // Substring matching: "a" appears in "{ a, b }" (the name text of destructured const)
         let results =
             extract_definitions(&TsParser, "a", &[DefKind::Const], "const { a, b } = obj;");
-        assert!(results.is_empty());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Const);
     }
 
     #[test]

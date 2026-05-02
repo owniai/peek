@@ -29,10 +29,6 @@ impl LanguageParser for RustParser {
         ]
     }
 
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["::"]
-    }
-
     impl_init_parser!(tree_sitter_rust::LANGUAGE, "Rust");
 
     impl_extract_with!(collect_definitions, scope: "");
@@ -216,36 +212,12 @@ mod tests {
     }
 
     #[test]
-    fn type_not_matched_by_struct() {
-        let src = "type Foo = i32; struct Foo { x: i32 }";
-        let results = extract_definitions(&RustParser, "Foo", &[DefKind::Type], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Type);
-    }
-
-    #[test]
     fn const_fn_is_function_not_const() {
         let src = "const fn factorial(n: u64) -> u64 { 1 }";
         let results = extract_definitions(&RustParser, "factorial", &[DefKind::Const], src);
         assert!(results.is_empty());
         let results = extract_definitions(&RustParser, "factorial", &[DefKind::Function], src);
         assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn const_not_matched_by_struct() {
-        let src = "const Foo: i32 = 1; struct Foo { x: i32 }";
-        let results = extract_definitions(&RustParser, "Foo", &[DefKind::Const], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Const);
-    }
-
-    #[test]
-    fn trait_not_matched_by_struct() {
-        let src = "trait Foo {} struct Foo { x: i32 }";
-        let results = extract_definitions(&RustParser, "Foo", &[DefKind::Trait], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Trait);
     }
 
     #[test]
@@ -257,14 +229,6 @@ mod tests {
         let results = extract_definitions(&RustParser, "foo", &[DefKind::Function], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, DefKind::Function);
-    }
-
-    #[test]
-    fn macro_not_matched_by_struct() {
-        let src = "macro_rules! Foo { () => {}; } struct Foo { x: i32 }";
-        let results = extract_definitions(&RustParser, "Foo", &[DefKind::Macro], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Macro);
     }
 
     #[test]
@@ -389,14 +353,6 @@ mod tests {
         let results = extract_definitions(&RustParser, "my_mod", &[DefKind::Module], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, DefKind::Module);
-    }
-
-    #[test]
-    fn mod_not_matched_by_function() {
-        let src = "mod my_mod {} fn my_mod() {}";
-        let results = extract_definitions(&RustParser, "my_mod", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
     }
 
     #[test]

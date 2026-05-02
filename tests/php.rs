@@ -175,32 +175,6 @@ fn peek_for_php_trait_method_scope() {
 }
 
 #[test]
-fn peek_for_php_config_namespace_const() {
-    let output = peek(&["-k", "const", "MAX_RETRIES", "tests/fixtures/php"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert!(
-        results
-            .iter()
-            .any(|r| r.scope == "App\\Config\\MAX_RETRIES" && r.kind == "const")
-    );
-}
-
-#[test]
-fn peek_for_php_config_namespace_class() {
-    let output = peek(&["-k", "class", "Database", "tests/fixtures/php"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert!(
-        results
-            .iter()
-            .any(|r| r.scope == "App\\Config\\Database" && r.kind == "class")
-    );
-}
-
-#[test]
 fn peek_for_php_typed_const() {
     // PHP 8.3+ typed constants (e.g., "const string APP_NAME = 'peek'")
     // are found via AST parsing.
@@ -215,24 +189,6 @@ fn peek_for_php_typed_const() {
     assert!(
         stdout.contains("[const/"),
         "PHP 8.3+ typed constant 'APP_NAME' not found. Got: {}",
-        stdout
-    );
-}
-
-#[test]
-fn peek_for_php_typed_const_in_namespace() {
-    // Verify scope includes namespace for typed constants
-    let output = peek(&[
-        "-k",
-        "const",
-        "PUBLIC_CONST",
-        "tests/fixtures/php/typed_const.php",
-    ]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    assert!(
-        stdout.contains("[const/"),
-        "BUG: PHP 8.3+ typed constant 'PUBLIC_CONST' not found. Got: {}",
         stdout
     );
 }

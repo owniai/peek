@@ -1,6 +1,6 @@
 {
   "name": "peek-code",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Use peek to search for code definitions across 16 languages with tree-sitter AST parsing",
   "author": {
     "name": "owniai"

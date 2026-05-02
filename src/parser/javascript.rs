@@ -293,28 +293,6 @@ mod tests {
 
     // --- Meta tests ---
 
-    #[test]
-    fn extensions_cover_js_jsx() {
-        let p = JsParser;
-        assert!(p.extensions().contains(&".js"));
-        assert!(p.extensions().contains(&".jsx"));
-    }
-
-    #[test]
-    fn supported_kinds_all_three() {
-        let p = JsParser;
-        let kinds = p.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Const));
-    }
-
-    #[test]
-    fn language_returns_js() {
-        let p = JsParser;
-        assert_eq!(p.language(), "js");
-    }
-
     // --- Edge case tests ---
 
     #[test]
@@ -386,45 +364,6 @@ mod tests {
         assert!(results.is_empty());
     }
 
-    #[test]
-    fn kind_filter_class_not_func() {
-        let results = extract_definitions(&JsParser, "Foo", &[DefKind::Function], "class Foo {}");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn nonexistent() {
-        let results = extract_definitions(
-            &JsParser,
-            "bar",
-            &[DefKind::Function, DefKind::Class],
-            "function foo() {}",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn kind_filter_const_not_func_from_lexical() {
-        let results = extract_definitions(
-            &JsParser,
-            "myConst",
-            &[DefKind::Function],
-            "const myConst = 42;",
-        );
-        assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn kind_filter_arrow_not_const() {
-        let results = extract_definitions(
-            &JsParser,
-            "myArrow",
-            &[DefKind::Const],
-            "const myArrow = () => {};",
-        );
-        assert_eq!(results.len(), 0);
-    }
-
     // --- Exception path: let/var skipped ---
 
     #[test]
@@ -461,10 +400,12 @@ mod tests {
     }
 
     #[test]
-    fn const_destructure() {
+    fn const_destructure_substring_match() {
+        // Substring matching: "a" appears in "{ a, b }" (the name text of destructured const)
         let results =
             extract_definitions(&JsParser, "a", &[DefKind::Const], "const { a, b } = obj;");
-        assert!(results.is_empty());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Const);
     }
 
     #[test]

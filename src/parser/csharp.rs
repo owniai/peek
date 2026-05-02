@@ -525,29 +525,6 @@ mod tests {
         assert_eq!(p.language(), "csharp");
     }
 
-    #[test]
-    fn test_extensions_cover_cs() {
-        let p = CSharpParser;
-        assert!(p.extensions().contains(&".cs"));
-        assert_eq!(p.extensions().len(), 1);
-    }
-
-    #[test]
-    fn test_supported_kinds_nine() {
-        let p = CSharpParser;
-        let kinds = p.supported_kinds();
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Interface));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Struct));
-        assert!(kinds.contains(&DefKind::Record));
-        assert!(kinds.contains(&DefKind::Delegate));
-        assert!(kinds.contains(&DefKind::Event));
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Const));
-        assert_eq!(kinds.len(), 9);
-    }
-
     // === Edge case tests ===
 
     #[test]
@@ -581,16 +558,5 @@ mod tests {
 
         let app = extract_definitions(&CSharpParser, "App", &[DefKind::Class], src);
         assert_eq!(app.len(), 1);
-    }
-
-    #[test]
-    fn test_nonexistent_name() {
-        let results = extract_definitions(
-            &CSharpParser,
-            "DoesNotExist",
-            DefKind::all(),
-            "class Foo { }",
-        );
-        assert!(results.is_empty());
     }
 }

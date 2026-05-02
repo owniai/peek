@@ -3,10 +3,50 @@ use clap::Parser;
 
 /// Short flags that take a value (all others are boolean).
 /// MUST stay in sync with Cli struct fields that have #[arg(short, long)] and take a value.
-const VALUE_SHORT_FLAGS: &[char] = &['k', 'g', 'd'];
+const VALUE_SHORT_FLAGS: &[char] = &['k', 'g', 'd', 'e'];
 /// Long flags that take a value (all others are boolean).
 /// MUST stay in sync with Cli struct fields that have #[arg(short, long)] and take a value.
-const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth"];
+const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth", "regexp"];
+/// Short flags that are boolean (no value).
+/// MUST stay in sync with Cli struct fields that have #[arg(short)] and no value.
+const BOOLEAN_SHORT_FLAGS: &[char] = &['i', 'S', 'l', 'c', 'w', 'H', 'I', 'M'];
+/// Long flags that are boolean (no value).
+/// MUST stay in sync with Cli struct fields that have #[arg(long)] and no value.
+const BOOLEAN_LONG_FLAGS: &[&str] = &[
+    "ignore-case",
+    "smart-case",
+    "no-signature",
+    "files-with-matches",
+    "count",
+    "hidden",
+    "no-ignore",
+    "json",
+    "no-messages",
+    "word-regexp",
+    "with-filename",
+    "no-filename",
+    "version",
+    "help",
+];
+
+/// Check if `arg` looks like a known peek option (value-taking or boolean).
+fn is_known_option(arg: &str) -> bool {
+    if let Some(rest) = arg.strip_prefix("--") {
+        if rest.is_empty() {
+            return true; // "--" stop marker
+        }
+        let flag_name = rest.split_once('=').map(|(n, _)| n).unwrap_or(rest);
+        VALUE_LONG_FLAGS.contains(&flag_name) || BOOLEAN_LONG_FLAGS.contains(&flag_name)
+    } else if let Some(rest) = arg.strip_prefix("-") {
+        if rest.is_empty() {
+            return false; // bare "-" is stdin, not an option
+        }
+        let first = rest.chars().next().unwrap();
+        VALUE_SHORT_FLAGS.contains(&first) || BOOLEAN_SHORT_FLAGS.contains(&first)
+    } else {
+        false
+    }
+}
 
 /// Reorder CLI arguments so options appear before positional arguments.
 ///
@@ -18,8 +58,8 @@ const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth"];
 /// (`-x value`, `--flag=value`, `--flag value`, boolean flags) before
 /// positional args, and respects `--` as a stop marker.
 ///
-/// Limitation: option values starting with `-` must use `--flag=value` syntax,
-/// as bare `-` prefixed tokens are always treated as options during reordering.
+/// Values starting with `-` that are not known peek options are accepted and
+/// converted to `--flag=value` syntax so clap parses them correctly.
 pub fn reorder_cli_args(args: &[String]) -> Vec<String> {
     if args.len() <= 1 {
         return args.to_vec();
@@ -42,34 +82,74 @@ pub fn reorder_cli_args(args: &[String]) -> Vec<String> {
 
         // Long option: --flag or --flag=value
         if let Some(rest) = arg.strip_prefix("--") {
-            opts.push(arg.clone());
-            // If no embedded = and it takes a value, grab next arg
             if !rest.contains('=')
                 && VALUE_LONG_FLAGS.contains(&rest)
                 && i + 1 < args.len()
-                && !args[i + 1].starts_with('-')
+                && !is_known_option(&args[i + 1])
             {
+                let value = args[i + 1].clone();
+                if value.starts_with('-') {
+                    opts.push(format!("{}={}", arg, value));
+                } else {
+                    opts.push(arg.clone());
+                    opts.push(value);
+                }
                 i += 1;
-                opts.push(args[i].clone());
+            } else if !rest.contains('=') && VALUE_LONG_FLAGS.contains(&rest) && i + 1 >= args.len()
+            {
+                positionals.push(arg.clone());
+            } else {
+                opts.push(arg.clone());
             }
         }
         // Short option: -x, -xvalue, or -xyz
         else if let Some(rest) = arg.strip_prefix("-") {
             if rest.is_empty() {
                 positionals.push(arg.clone());
+            } else if rest.len() == 1
+                && VALUE_SHORT_FLAGS.contains(&rest.chars().next().unwrap())
+                && i + 1 < args.len()
+                && !is_known_option(&args[i + 1])
+            {
+                let value = args[i + 1].clone();
+                if value.starts_with('-') {
+                    opts.push(format!("{}={}", arg, value));
+                } else {
+                    opts.push(arg.clone());
+                    opts.push(value);
+                }
+                i += 1;
+            } else if rest.len() == 1
+                && VALUE_SHORT_FLAGS.contains(&rest.chars().next().unwrap())
+                && i + 1 >= args.len()
+            {
+                positionals.push(arg.clone());
+            } else if rest.len() > 1 {
+                let chars: Vec<char> = rest.chars().collect();
+                let last = *chars.last().unwrap();
+                if VALUE_SHORT_FLAGS.contains(&last) {
+                    for &c in &chars[..chars.len() - 1] {
+                        opts.push(format!("-{}", c));
+                    }
+                    if i + 1 < args.len() && !is_known_option(&args[i + 1]) {
+                        let value = args[i + 1].clone();
+                        if value.starts_with('-') {
+                            opts.push(format!("-{}={}", last, value));
+                        } else {
+                            opts.push(format!("-{}", last));
+                            opts.push(value);
+                        }
+                        i += 1;
+                    } else if i + 1 >= args.len() {
+                        positionals.push(format!("-{}", last));
+                    } else {
+                        opts.push(format!("-{}", last));
+                    }
+                } else {
+                    opts.push(arg.clone());
+                }
             } else {
                 opts.push(arg.clone());
-                // Only grab next arg as value for single-char value-taking flags (-k, -g, -d).
-                // Multi-char tokens (-kvalue, -ik) are self-contained; clap handles value
-                // extraction from the remaining chars internally.
-                if rest.len() == 1
-                    && VALUE_SHORT_FLAGS.contains(&rest.chars().next().unwrap())
-                    && i + 1 < args.len()
-                    && !args[i + 1].starts_with('-')
-                {
-                    i += 1;
-                    opts.push(args[i].clone());
-                }
             }
         }
         // Positional
@@ -138,6 +218,10 @@ pub struct Cli {
     #[arg(short = 'M', long = "no-messages")]
     no_messages: bool,
 
+    /// Only match whole words (surround pattern with word boundaries)
+    #[arg(short = 'w', long = "word-regexp")]
+    word: bool,
+
     /// Always show file path with results (overrides --no-filename)
     #[arg(short = 'H', long = "with-filename", conflicts_with = "no_filename")]
     with_filename: bool,
@@ -151,8 +235,13 @@ pub struct Cli {
     #[arg(short = 'g', long = "glob")]
     glob: Vec<String>,
 
+    /// Search patterns (can be specified multiple times)
+    #[arg(short = 'e', long = "regexp")]
+    regexp: Vec<String>,
+
     /// Definition name to search for (supports exact and fuzzy matching)
-    pattern: String,
+    /// Optional when -e/--regexp is used.
+    pattern: Option<String>,
 
     /// Files or directories to search in (default: current directory)
     #[arg(trailing_var_arg = true)]
@@ -160,12 +249,38 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn pattern(&self) -> &str {
-        &self.pattern
+    #[cfg(test)]
+    pub fn pattern(&self) -> Option<&str> {
+        self.pattern.as_deref()
     }
 
-    pub fn files(&self) -> &Vec<String> {
-        &self.files
+    #[cfg(test)]
+    pub fn regexp(&self) -> &Vec<String> {
+        &self.regexp
+    }
+
+    pub fn collect_patterns(&self) -> Vec<String> {
+        if !self.regexp.is_empty() {
+            return self.regexp.clone();
+        }
+        if let Some(p) = &self.pattern {
+            vec![p.clone()]
+        } else {
+            vec![]
+        }
+    }
+
+    pub fn files(&self) -> Vec<String> {
+        if !self.regexp.is_empty() {
+            let mut files = Vec::new();
+            if let Some(p) = &self.pattern {
+                files.push(p.clone());
+            }
+            files.extend(self.files.iter().cloned());
+            files
+        } else {
+            self.files.clone()
+        }
     }
 
     pub fn kinds(&self) -> Vec<DefKind> {
@@ -230,6 +345,10 @@ impl Cli {
     pub fn no_filename(&self) -> bool {
         self.no_filename
     }
+
+    pub fn word(&self) -> bool {
+        self.word
+    }
 }
 
 #[cfg(test)]
@@ -239,7 +358,7 @@ mod tests {
     #[test]
     fn parse_pattern_only() {
         let cli = Cli::try_parse_from(["peek", "my_func"]).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert!(cli.files().is_empty());
         assert!(cli.kinds() == DefKind::all().to_vec());
         assert!(!cli.no_signature());
@@ -248,14 +367,14 @@ mod tests {
     #[test]
     fn parse_pattern_with_single_file() {
         let cli = Cli::try_parse_from(["peek", "my_func", "src/"]).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(cli.files(), &["src/".to_string()]);
     }
 
     #[test]
     fn parse_pattern_with_multiple_files() {
         let cli = Cli::try_parse_from(["peek", "my_func", "main.cpp", "math.cpp"]).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(
             cli.files(),
             &["main.cpp".to_string(), "math.cpp".to_string()]
@@ -265,14 +384,14 @@ mod tests {
     #[test]
     fn parse_pattern_with_glob() {
         let cli = Cli::try_parse_from(["peek", "Config", "*.rs"]).unwrap();
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
         assert_eq!(cli.files(), &["*.rs".to_string()]);
     }
 
     #[test]
     fn parse_kind_short() {
         let cli = Cli::try_parse_from(["peek", "-k", "class", "Pipeline"]).unwrap();
-        assert_eq!(cli.pattern(), "Pipeline");
+        assert_eq!(cli.pattern(), Some("Pipeline"));
         assert!(cli.files().is_empty());
         assert_eq!(cli.kinds(), vec![DefKind::Class]);
     }
@@ -280,7 +399,7 @@ mod tests {
     #[test]
     fn parse_kind_long() {
         let cli = Cli::try_parse_from(["peek", "--kind", "class", "Pipeline"]).unwrap();
-        assert_eq!(cli.pattern(), "Pipeline");
+        assert_eq!(cli.pattern(), Some("Pipeline"));
         assert_eq!(cli.kinds(), vec![DefKind::Class]);
     }
 
@@ -294,7 +413,7 @@ mod tests {
     fn parse_all_flags_with_files() {
         let cli = Cli::try_parse_from(["peek", "-k", "struct", "--no-signature", "Config", "src/"])
             .unwrap();
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
         assert_eq!(cli.files(), &["src/".to_string()]);
         assert_eq!(cli.kinds(), vec![DefKind::Struct]);
         assert!(cli.no_signature());
@@ -307,14 +426,31 @@ mod tests {
     }
 
     #[test]
-    fn default_no_signature_is_false() {
+    fn all_cli_defaults_correct() {
         let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
         assert!(!cli.no_signature());
+        assert!(cli.kind_tags().is_none());
+        assert!(cli.globs().is_empty());
+        assert!(!cli.ignore_case());
+        assert!(!cli.smart_case());
+        assert_eq!(cli.max_depth(), None);
+        assert!(!cli.files_with_matches());
+        assert!(!cli.count());
+        assert!(!cli.hidden());
+        assert!(!cli.no_ignore());
+        assert!(!cli.json());
+        assert!(!cli.no_messages());
+        assert!(!cli.with_filename());
+        assert!(!cli.no_filename());
+        assert!(!cli.word());
+        assert!(cli.regexp().is_empty());
     }
 
     #[test]
-    fn reject_no_pattern() {
-        assert!(Cli::try_parse_from(["peek"]).is_err());
+    fn accept_no_pattern_when_regexp_provided() {
+        let cli = Cli::try_parse_from(["peek"]).unwrap();
+        assert!(cli.pattern().is_none());
+        assert!(cli.regexp().is_empty());
     }
 
     #[test]
@@ -352,12 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn kind_tags_none_when_not_set() {
-        let cli = Cli::try_parse_from(["peek", "test"]).unwrap();
-        assert!(cli.kind_tags().is_none());
-    }
-
-    #[test]
     fn version_flag() {
         assert!(Cli::try_parse_from(["peek", "--version"]).is_err());
     }
@@ -370,7 +500,7 @@ mod tests {
     #[test]
     fn options_after_pattern_still_recognized() {
         let cli = Cli::try_parse_from(["peek", "my_func", "-k", "function", "src/"]).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(cli.files(), &["src/".to_string()]);
         assert_eq!(cli.kinds(), vec![DefKind::Function]);
     }
@@ -378,14 +508,14 @@ mod tests {
     #[test]
     fn glob_flag_single() {
         let cli = Cli::try_parse_from(["peek", "-g", "*.rs", "Config"]).unwrap();
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
         assert_eq!(cli.globs(), &["*.rs".to_string()]);
     }
 
     #[test]
     fn glob_flag_long() {
         let cli = Cli::try_parse_from(["peek", "--glob", "*.rs", "Config"]).unwrap();
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
         assert_eq!(cli.globs(), &["*.rs".to_string()]);
     }
 
@@ -393,7 +523,7 @@ mod tests {
     fn glob_flag_multiple() {
         let cli =
             Cli::try_parse_from(["peek", "-g", "*.rs", "-g", "!*.test.rs", "Config"]).unwrap();
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
         assert_eq!(cli.globs(), &["*.rs".to_string(), "!*.test.rs".to_string()]);
     }
 
@@ -404,29 +534,16 @@ mod tests {
     }
 
     #[test]
-    fn glob_flag_none_by_default() {
-        let cli = Cli::try_parse_from(["peek", "Config"]).unwrap();
-        assert!(cli.globs().is_empty());
-    }
-
-    #[test]
     fn glob_flag_with_path_and_kind() {
         let cli =
             Cli::try_parse_from(["peek", "-k", "class", "-g", "*.rs", "Config", "src/"]).unwrap();
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
         assert_eq!(cli.kinds(), vec![DefKind::Class]);
         assert_eq!(cli.globs(), &["*.rs".to_string()]);
         assert_eq!(cli.files(), &["src/".to_string()]);
     }
 
     // --- Case sensitivity flags ---
-
-    #[test]
-    fn default_no_case_flags() {
-        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert!(!cli.ignore_case());
-        assert!(!cli.smart_case());
-    }
 
     #[test]
     fn parse_ignore_case_short() {
@@ -517,21 +634,6 @@ mod tests {
     }
 
     #[test]
-    fn max_depth_none_by_default() {
-        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert_eq!(cli.max_depth(), None);
-    }
-
-    #[test]
-    fn new_flags_default_false() {
-        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert!(!cli.files_with_matches());
-        assert!(!cli.count());
-        assert!(!cli.hidden());
-        assert!(!cli.no_ignore());
-    }
-
-    #[test]
     fn combined_flags_with_existing() {
         let cli = Cli::try_parse_from([
             "peek", "-l", "-k", "class", "-g", "*.rs", "--hidden", "Config",
@@ -541,7 +643,7 @@ mod tests {
         assert_eq!(cli.kinds(), vec![DefKind::Class]);
         assert_eq!(cli.globs(), &["*.rs".to_string()]);
         assert!(cli.hidden());
-        assert_eq!(cli.pattern(), "Config");
+        assert_eq!(cli.pattern(), Some("Config"));
     }
 
     // --- --json flag ---
@@ -550,12 +652,6 @@ mod tests {
     fn json_flag() {
         let cli = Cli::try_parse_from(["peek", "--json", "foo"]).unwrap();
         assert!(cli.json());
-    }
-
-    #[test]
-    fn json_default_false() {
-        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert!(!cli.json());
     }
 
     #[test]
@@ -578,12 +674,6 @@ mod tests {
     fn no_messages_long() {
         let cli = Cli::try_parse_from(["peek", "--no-messages", "foo"]).unwrap();
         assert!(cli.no_messages());
-    }
-
-    #[test]
-    fn no_messages_default_false() {
-        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert!(!cli.no_messages());
     }
 
     // --- --with-filename / --no-filename flags ---
@@ -619,11 +709,108 @@ mod tests {
         assert!(Cli::try_parse_from(["peek", "-H", "-I", "foo"]).is_err());
     }
 
+    // --- --word-regexp flag ---
+
     #[test]
-    fn filename_flags_default_false() {
+    fn word_regexp_short() {
+        let cli = Cli::try_parse_from(["peek", "-w", "foo"]).unwrap();
+        assert!(cli.word());
+    }
+
+    #[test]
+    fn word_regexp_long() {
+        let cli = Cli::try_parse_from(["peek", "--word-regexp", "foo"]).unwrap();
+        assert!(cli.word());
+    }
+
+    // --- -e/--regexp flag ---
+
+    #[test]
+    fn regexp_flag_short() {
+        let cli = Cli::try_parse_from(["peek", "-e", "foo"]).unwrap();
+        assert_eq!(cli.regexp(), &["foo".to_string()]);
+        assert!(cli.pattern().is_none());
+    }
+
+    #[test]
+    fn regexp_flag_long() {
+        let cli = Cli::try_parse_from(["peek", "--regexp", "foo"]).unwrap();
+        assert_eq!(cli.regexp(), &["foo".to_string()]);
+    }
+
+    #[test]
+    fn regexp_flag_multiple() {
+        let cli = Cli::try_parse_from(["peek", "-e", "foo", "-e", "bar"]).unwrap();
+        assert_eq!(cli.regexp(), &["foo".to_string(), "bar".to_string()]);
+    }
+
+    #[test]
+    fn regexp_with_positional_pattern() {
+        let cli = Cli::try_parse_from(["peek", "baz", "-e", "foo"]).unwrap();
+        assert_eq!(cli.pattern(), Some("baz"));
+        assert_eq!(cli.regexp(), &["foo".to_string()]);
+    }
+
+    #[test]
+    fn collect_patterns_positional_only() {
         let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert!(!cli.with_filename());
-        assert!(!cli.no_filename());
+        assert_eq!(cli.collect_patterns(), vec!["foo".to_string()]);
+    }
+
+    #[test]
+    fn collect_patterns_regexp_only() {
+        let cli = Cli::try_parse_from(["peek", "-e", "foo", "-e", "bar"]).unwrap();
+        assert_eq!(
+            cli.collect_patterns(),
+            vec!["foo".to_string(), "bar".to_string()]
+        );
+    }
+
+    #[test]
+    fn collect_patterns_mixed() {
+        // When -e is present, positional pattern is excluded (treated as path)
+        let cli = Cli::try_parse_from(["peek", "baz", "-e", "foo", "-e", "bar"]).unwrap();
+        assert_eq!(
+            cli.collect_patterns(),
+            vec!["foo".to_string(), "bar".to_string()]
+        );
+    }
+
+    #[test]
+    fn collect_patterns_empty_when_none() {
+        let cli = Cli::try_parse_from(["peek"]).unwrap();
+        assert!(cli.collect_patterns().is_empty());
+    }
+
+    // --- -e turns positional into path (ripgrep alignment) ---
+
+    #[test]
+    fn regexp_turns_positional_into_path() {
+        let cli = Cli::try_parse_from(["peek", "src/", "-e", "foo"]).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["foo".to_string()]);
+        assert_eq!(cli.files(), &["src/".to_string()]);
+    }
+
+    #[test]
+    fn regexp_positional_and_trailing_files_merged() {
+        let args = args_from(&["peek", "src/", "lib/", "-e", "foo"]);
+        let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["foo".to_string()]);
+        assert_eq!(cli.files(), &["src/".to_string(), "lib/".to_string()]);
+    }
+
+    #[test]
+    fn regexp_without_positional_empty_files() {
+        let cli = Cli::try_parse_from(["peek", "-e", "foo"]).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["foo".to_string()]);
+        assert!(cli.files().is_empty());
+    }
+
+    #[test]
+    fn no_regexp_positional_stays_as_pattern() {
+        let cli = Cli::try_parse_from(["peek", "foo", "src/"]).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["foo".to_string()]);
+        assert_eq!(cli.files(), &["src/".to_string()]);
     }
 
     // --- reorder_cli_args ---
@@ -741,6 +928,54 @@ mod tests {
     }
 
     #[test]
+    fn reorder_cluster_boolean_plus_value_flag() {
+        // -ik function means -i (boolean) + -k function
+        let args = args_from(&["peek", "my_func", "src/", "-ik", "function"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-i", "-k", "function", "my_func", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_cluster_boolean_plus_value_flag_no_value() {
+        // -ik at end with no value → split: -i to opts, -k to positionals
+        let args = args_from(&["peek", "my_func", "-ik"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-i", "my_func", "-k"])
+        );
+    }
+
+    #[test]
+    fn reorder_cluster_boolean_plus_value_flag_dash_value() {
+        // -ik -S where -S is a known boolean flag → split but don't grab
+        let args = args_from(&["peek", "my_func", "-ik", "-S"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-i", "-k", "-S", "my_func"])
+        );
+    }
+
+    #[test]
+    fn reorder_regexp_after_files() {
+        let args = args_from(&["peek", "my_func", "src/", "-e", "pattern"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-e", "pattern", "my_func", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_multiple_regexp() {
+        let args = args_from(&["peek", "src/", "-e", "foo", "-e", "bar"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-e", "foo", "-e", "bar", "src/"])
+        );
+    }
+
+    #[test]
     fn reorder_single_program_arg() {
         let args = args_from(&["peek"]);
         assert_eq!(reorder_cli_args(&args), args_from(&["peek"]));
@@ -758,7 +993,7 @@ mod tests {
     fn parse_kind_after_files_with_reorder() {
         let args = args_from(&["peek", "my_func", "src/", "-k", "function"]);
         let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(cli.files(), &["src/".to_string()]);
         assert_eq!(cli.kinds(), vec![DefKind::Function]);
     }
@@ -767,7 +1002,7 @@ mod tests {
     fn parse_hidden_after_files_with_reorder() {
         let args = args_from(&["peek", "my_func", "src/", "--hidden"]);
         let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(cli.files(), &["src/".to_string()]);
         assert!(cli.hidden());
     }
@@ -778,7 +1013,7 @@ mod tests {
             "peek", "my_func", "src/", "-k", "function", "--hidden", "-g", "*.rs",
         ]);
         let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(cli.files(), &["src/".to_string()]);
         assert_eq!(cli.kinds(), vec![DefKind::Function]);
         assert!(cli.hidden());
@@ -789,8 +1024,104 @@ mod tests {
     fn parse_glob_after_files_with_reorder() {
         let args = args_from(&["peek", "my_func", "src/", "-g", "*.rs", "-g", "!*.test.rs"]);
         let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
-        assert_eq!(cli.pattern(), "my_func");
+        assert_eq!(cli.pattern(), Some("my_func"));
         assert_eq!(cli.files(), &["src/".to_string()]);
         assert_eq!(cli.globs(), &["*.rs".to_string(), "!*.test.rs".to_string()]);
+    }
+
+    // --- dash-prefixed option values ---
+
+    #[test]
+    fn reorder_glob_dash_prefixed_value() {
+        let args = args_from(&["peek", "my_func", "src/", "-g", "-*.test.rs"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-g=-*.test.rs", "my_func", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_regexp_dash_prefixed_value() {
+        let args = args_from(&["peek", "src/", "-e", "-pattern"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-e=-pattern", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_long_glob_dash_prefixed_value() {
+        let args = args_from(&["peek", "my_func", "src/", "--glob", "-*.test.rs"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "--glob=-*.test.rs", "my_func", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_long_regexp_dash_prefixed_value() {
+        let args = args_from(&["peek", "src/", "--regexp", "-pattern"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "--regexp=-pattern", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_does_not_grab_known_flag_as_value() {
+        // "-k" is a known flag, should NOT be grabbed as -g's value
+        let args = args_from(&["peek", "my_func", "src/", "-g", "-k", "function"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-g", "-k", "function", "my_func", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_does_not_grab_known_boolean_flag_as_value() {
+        // "-i" is a known boolean flag, should NOT be grabbed as -g's value
+        let args = args_from(&["peek", "my_func", "src/", "-g", "-i"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "-g", "-i", "my_func", "src/"])
+        );
+    }
+
+    #[test]
+    fn reorder_value_flag_at_end_preserves_position() {
+        // -k at the end with no value should stay after positionals,
+        // not move before them where clap would consume a positional as -k's value.
+        let args = args_from(&["peek", "my_func", "src/", "-k"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "my_func", "src/", "-k"])
+        );
+    }
+
+    #[test]
+    fn reorder_value_long_flag_at_end_preserves_position() {
+        // --kind at the end with no value should stay after positionals.
+        let args = args_from(&["peek", "my_func", "src/", "--kind"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "my_func", "src/", "--kind"])
+        );
+    }
+
+    #[test]
+    fn reorder_end_to_end_dash_prefixed_glob() {
+        let args = args_from(&["peek", "my_func", "src/", "-g", "-*.test.rs"]);
+        let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
+        assert_eq!(cli.pattern(), Some("my_func"));
+        assert_eq!(cli.files(), &["src/".to_string()]);
+        assert_eq!(cli.globs(), &["-*.test.rs".to_string()]);
+    }
+
+    #[test]
+    fn reorder_end_to_end_dash_prefixed_regexp() {
+        let args = args_from(&["peek", "src/", "-e", "-pattern"]);
+        let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["-pattern".to_string()]);
+        assert_eq!(cli.files(), &["src/".to_string()]);
     }
 }

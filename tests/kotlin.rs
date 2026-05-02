@@ -146,7 +146,6 @@ fn peek_for_kotlin_multiple_consts() {
             .iter()
             .any(|r| r.scope == "APP_VERSION" && r.kind == "const")
     );
-
     let output2 = peek(&["-k", "const", "MAX_RETRIES", "tests/fixtures/kotlin"]);
     let stdout2 = String::from_utf8_lossy(&output2.stdout);
     assert!(output2.status.success());

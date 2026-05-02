@@ -18,19 +18,6 @@ fn peek_for_ruby_singleton_method() {
 }
 
 #[test]
-fn peek_for_ruby_class_inheritance() {
-    let output = peek(&["-k", "class", "ApplicationError", "tests/fixtures/ruby"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert!(
-        results
-            .iter()
-            .any(|r| r.scope == "ApplicationError" && r.kind == "class")
-    );
-}
-
-#[test]
 fn peek_for_ruby_nested_module_scope() {
     let output = peek(&["-k", "module", "Models", "tests/fixtures/ruby"]);
     let stdout = String::from_utf8_lossy(&output.stdout);

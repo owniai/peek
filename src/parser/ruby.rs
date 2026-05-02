@@ -25,10 +25,6 @@ impl LanguageParser for RubyParser {
         ]
     }
 
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["::"]
-    }
-
     impl_init_parser!(tree_sitter_ruby::LANGUAGE, "Ruby");
 
     impl_extract_with!(collect_definitions, scope: "");
@@ -217,30 +213,6 @@ fn recurse_children(
 mod tests {
     use super::*;
 
-    // === LanguageParser trait tests ===
-
-    #[test]
-    fn test_language() {
-        let parser = RubyParser;
-        assert_eq!(parser.language(), "ruby");
-    }
-
-    #[test]
-    fn test_extensions() {
-        let parser = RubyParser;
-        assert_eq!(parser.extensions(), &[".rb", ".rake", ".gemspec", ".ru"]);
-    }
-
-    #[test]
-    fn test_supported_kinds() {
-        let parser = RubyParser;
-        let kinds = parser.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Module));
-        assert!(kinds.contains(&DefKind::Const));
-    }
-
     // === Edge case tests ===
 
     #[test]
@@ -250,10 +222,7 @@ my_var = 42
 "#;
         let parser = RubyParser;
         let mut ts_parser = parser.init_parser();
-        let mode = MatchMode::Exact {
-            name: "my_var".to_string(),
-            case_insensitive: false,
-        };
+        let mode = MatchMode::from_user_input("my_var", false, false).unwrap();
         let defs = parser
             .extract_with(&mode, &[DefKind::Const], source, &mut ts_parser)
             .unwrap();
@@ -271,28 +240,7 @@ end
 "#;
         let parser = RubyParser;
         let mut ts_parser = parser.init_parser();
-        let mode = MatchMode::Exact {
-            name: "MyClass".to_string(),
-            case_insensitive: false,
-        };
-        let defs = parser
-            .extract_with(&mode, &[DefKind::Function], source, &mut ts_parser)
-            .unwrap();
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_no_match() {
-        let source = r#"
-class MyClass
-end
-"#;
-        let parser = RubyParser;
-        let mut ts_parser = parser.init_parser();
-        let mode = MatchMode::Exact {
-            name: "MyClass".to_string(),
-            case_insensitive: false,
-        };
+        let mode = MatchMode::from_user_input("MyClass", false, false).unwrap();
         let defs = parser
             .extract_with(&mode, &[DefKind::Function], source, &mut ts_parser)
             .unwrap();
@@ -304,10 +252,7 @@ end
         let source = "";
         let parser = RubyParser;
         let mut ts_parser = parser.init_parser();
-        let mode = MatchMode::Exact {
-            name: "anything".to_string(),
-            case_insensitive: false,
-        };
+        let mode = MatchMode::from_user_input("anything", false, false).unwrap();
         let defs = parser
             .extract_with(&mode, &[DefKind::Function], source, &mut ts_parser)
             .unwrap();

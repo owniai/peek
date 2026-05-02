@@ -71,3 +71,12 @@ function outerFunc() {
   const localConst = 1;
   function innerFunc() {}
 }
+
+// Namespace / Module
+namespace MyApp {
+  export function nsHelper(): void {}
+  export class NsClass {}
+}
+module ModSpace {
+  export function modFunc(): void {}
+}

@@ -13,7 +13,7 @@ pub struct DefLine {
 }
 
 static DEF_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:(?:[^:]+):)?(\d+)-(\d+) \[(\w+)/([^\]]+)\](?: (.*))?").unwrap()
+    Regex::new(r"(?:(?:[A-Za-z]:[^:]+|[^:]+):)?(\d+)-(\d+) \[(\w+)/([^\]]+)\](?: (.*))?").unwrap()
 });
 
 /// Run peek binary with given arguments.

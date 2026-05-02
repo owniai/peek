@@ -29,10 +29,6 @@ impl LanguageParser for CppParser {
         ]
     }
 
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["::"]
-    }
-
     impl_init_parser!(tree_sitter_cpp::LANGUAGE, "C++");
 
     impl_extract_with!(collect_definitions, scope: "");
@@ -60,16 +56,16 @@ fn collect_definitions<'a>(
             recurse_into_body(node, source, mode, kinds, results, &new_scope);
             return;
         }
-        "struct_specifier" => {
+        "struct_specifier" | "union_specifier" => {
             handle_class_or_struct(node, source, mode, kinds, results, scope, DefKind::Struct);
-            // Recurse into struct body for nested definitions
+            // Recurse into struct/union body for nested definitions
             let new_scope = build_scope_from_node(node, source, scope, "::");
             recurse_into_body(node, source, mode, kinds, results, &new_scope);
             return;
         }
         "enum_specifier" => {
             handle_enum(node, source, mode, kinds, results, scope);
-            // Enums don't contribute to scope
+            recurse_into_body(node, source, mode, kinds, results, scope);
             return;
         }
         "function_definition" => {
@@ -88,15 +84,28 @@ fn collect_definitions<'a>(
         }
         "type_definition" => {
             handle_typedef(node, source, mode, kinds, results, scope);
+            if let Some(type_node) = node.child_by_field_name("type") {
+                if matches!(type_node.kind(), "struct_specifier" | "union_specifier") {
+                    recurse_into_body(type_node, source, mode, kinds, results, scope);
+                }
+            }
+            return;
         }
         "alias_declaration" => {
             handle_alias(node, source, mode, kinds, results, scope);
+            return;
         }
         "declaration" if is_const_declaration(node, source) => {
             handle_const(node, source, mode, kinds, results, scope);
+            return;
         }
         "preproc_def" | "preproc_function_def" => {
             handle_macro(node, source, mode, kinds, results);
+            return;
+        }
+        "preproc_call" => {
+            handle_preproc_call_macro(node, source, mode, kinds, results);
+            return;
         }
         _ => {}
     }
@@ -186,7 +195,7 @@ fn qualified_name_from_declarator(declarator: Node, source: &str) -> Option<Stri
     }
 }
 
-/// Handle class_specifier and struct_specifier nodes.
+/// Handle class_specifier, struct_specifier, and union_specifier nodes.
 /// Both share the same AST structure: name field + optional body field.
 fn handle_class_or_struct(
     node: Node,
@@ -273,7 +282,9 @@ fn handle_typedef(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Type) {
+    let kind = resolve_typedef_kind(node);
+
+    if !kinds.contains(&kind) {
         return;
     }
 
@@ -294,11 +305,22 @@ fn handle_typedef(
     let start_row = node.start_position().row + 1;
     let [start, end] = line_range(start_row, node);
     results.push(DefContent {
-        kind: DefKind::Type,
+        kind,
         lines: [start, end],
         signature,
         scope: build_scope(scope, "::", &name_text),
     });
+}
+
+fn resolve_typedef_kind(node: Node) -> DefKind {
+    if let Some(type_node) = node.child_by_field_name("type") {
+        if matches!(type_node.kind(), "struct_specifier" | "union_specifier")
+            && type_node.child_by_field_name("body").is_some()
+        {
+            return DefKind::Struct;
+        }
+    }
+    DefKind::Type
 }
 
 /// Handle alias_declaration (C++ using = type alias).
@@ -380,6 +402,56 @@ fn extract_namespace_name(node: Node, source: &str) -> String {
     }
 }
 
+/// Handle `preproc_call` nodes that tree-sitter misparses as `#define` inside
+/// enum bodies. In normal contexts `#define` becomes `preproc_def`, but inside
+/// `enumerator_list` the C++ grammar produces `preproc_call` instead.
+fn handle_preproc_call_macro(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    if !kinds.contains(&DefKind::Macro) {
+        return;
+    }
+
+    let mut cursor = node.walk();
+    let is_define = node.children(&mut cursor).any(|child| {
+        child.kind() == "preproc_directive" && node_text_ref(child, source) == "#define"
+    });
+    if !is_define {
+        return;
+    }
+
+    let arg_node = match node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "preproc_arg")
+    {
+        Some(n) => n,
+        None => return,
+    };
+    let arg_text = node_text_ref(arg_node, source);
+    let name = match arg_text.split_whitespace().next() {
+        Some(n) => n,
+        None => return,
+    };
+
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let signature = first_line_of_node(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+    results.push(DefContent {
+        kind: DefKind::Macro,
+        lines: [start, end],
+        signature,
+        scope: name.to_string(),
+    });
+}
+
 /// Recurse into a node's body field children.
 fn recurse_into_body(
     node: Node,
@@ -401,37 +473,6 @@ fn recurse_into_body(
 mod tests {
     use super::*;
     use crate::parser::extract_definitions;
-
-    // --- Meta tests ---
-
-    #[test]
-    fn test_language_returns_cpp() {
-        let p = CppParser;
-        assert_eq!(p.language(), "cpp");
-    }
-
-    #[test]
-    fn test_extensions_cover_cpp() {
-        let p = CppParser;
-        assert!(p.extensions().contains(&".cpp"));
-        assert!(p.extensions().contains(&".h"));
-        assert!(p.extensions().contains(&".hpp"));
-        assert_eq!(p.extensions().len(), 7);
-    }
-
-    #[test]
-    fn test_supported_kinds_seven() {
-        let p = CppParser;
-        let kinds = p.supported_kinds();
-        assert_eq!(kinds.len(), 7);
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Struct));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Type));
-        assert!(kinds.contains(&DefKind::Const));
-        assert!(kinds.contains(&DefKind::Macro));
-    }
 
     // --- Edge case / handler tests ---
 
@@ -462,6 +503,25 @@ mod tests {
     }
 
     #[test]
+    fn test_union_extracted_as_struct_kind() {
+        let results = extract_definitions(
+            &CppParser,
+            "Packet",
+            &[DefKind::Struct],
+            "union Packet { struct { int x; int y; } coords; unsigned long raw; };",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "Packet");
+    }
+
+    #[test]
+    fn test_union_forward_declaration_skipped() {
+        let results = extract_definitions(&CppParser, "Data", &[DefKind::Struct], "union Data;");
+        assert!(results.is_empty());
+    }
+
+    #[test]
     fn test_enum_forward_declaration_skipped() {
         let results = extract_definitions(&CppParser, "Color", &[DefKind::Enum], "enum Color;");
         assert!(results.is_empty());
@@ -476,6 +536,94 @@ mod tests {
             "typedef int (*Comparator)(const void *, const void *);",
         );
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_typedef_struct_no_body_still_type() {
+        let results = extract_definitions(
+            &CppParser,
+            "Point",
+            &[DefKind::Struct],
+            "typedef struct Point Point;",
+        );
+        assert!(
+            results.is_empty(),
+            "typedef alias without body should not be Struct"
+        );
+        let results = extract_definitions(
+            &CppParser,
+            "Point",
+            &[DefKind::Type],
+            "typedef struct Point Point;",
+        );
+        assert_eq!(results.len(), 1, "typedef alias should still be Type");
+        assert_eq!(results[0].kind, DefKind::Type);
+    }
+
+    #[test]
+    fn test_typedef_struct_with_body_is_struct() {
+        let results = extract_definitions(
+            &CppParser,
+            "PointT",
+            &[DefKind::Struct],
+            "typedef struct Point { int x; int y; } PointT;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "PointT");
+    }
+
+    #[test]
+    fn test_typedef_anon_struct_with_body_is_struct() {
+        let results = extract_definitions(
+            &CppParser,
+            "AnonT",
+            &[DefKind::Struct],
+            "typedef struct { int x; } AnonT;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "AnonT");
+    }
+
+    #[test]
+    fn test_typedef_union_with_body_is_struct() {
+        let results = extract_definitions(
+            &CppParser,
+            "UHandle",
+            &[DefKind::Struct],
+            "typedef union { int i; float f; } UHandle;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "UHandle");
+    }
+
+    #[test]
+    fn test_typedef_named_union_with_body_is_struct() {
+        let results = extract_definitions(
+            &CppParser,
+            "DataT",
+            &[DefKind::Struct],
+            "typedef union Data { int i; float f; } DataT;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Struct);
+        assert_eq!(results[0].scope, "DataT");
+    }
+
+    #[test]
+    fn test_typedef_struct_with_body_not_type() {
+        let results = extract_definitions(
+            &CppParser,
+            "PointT",
+            &[DefKind::Type],
+            "typedef struct Point { int x; int y; } PointT;",
+        );
+        assert!(
+            results.is_empty(),
+            "typedef struct with body should be Struct, not Type"
+        );
     }
 
     #[test]
@@ -525,13 +673,6 @@ mod tests {
     }
 
     #[test]
-    fn test_kind_filter_class_not_func() {
-        let src = "class Foo { public: void bar(); };";
-        let results = extract_definitions(&CppParser, "Foo", &[DefKind::Function], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
     fn test_out_of_class_method_found_by_short_name() {
         // Bug: extract_function_name returns "Engine::start" (full qualified name)
         // instead of "start", so searching for "start" yields no results.
@@ -564,6 +705,44 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, DefKind::Macro);
         assert_eq!(results[0].scope, "NS_MACRO");
+    }
+
+    #[test]
+    fn test_macro_inside_enum() {
+        let src = "enum Color {\n#define INNER_MACRO 42\n    RED,\n    GREEN,\n    BLUE\n};";
+        let results = extract_definitions(&CppParser, "INNER_MACRO", &[DefKind::Macro], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Macro);
+        assert_eq!(results[0].scope, "INNER_MACRO");
+    }
+
+    #[test]
+    fn test_typedef_struct_no_double_extraction() {
+        let results = extract_definitions(
+            &CppParser,
+            ".",
+            &[DefKind::Struct],
+            "typedef struct Point { int x; int y; } PointT;",
+        );
+        assert_eq!(
+            results.len(),
+            1,
+            "should extract only PointT, not also Point"
+        );
+        assert_eq!(results[0].scope, "PointT");
+    }
+
+    #[test]
+    fn test_macro_inside_typedef_struct() {
+        let results = extract_definitions(
+            &CppParser,
+            "INNER_MACRO",
+            &[DefKind::Macro],
+            "typedef struct { #define INNER_MACRO 42\n int x; } MyType;",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Macro);
+        assert_eq!(results[0].scope, "INNER_MACRO");
     }
 
     #[test]

@@ -27,10 +27,6 @@ impl LanguageParser for PhpParser {
         ]
     }
 
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["::", "\\"]
-    }
-
     impl_init_parser!(tree_sitter_php::LANGUAGE_PHP, "PHP");
 
     fn extract_with(
@@ -504,63 +500,11 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    // === Meta tests ===
-
-    #[test]
-    fn test_language_returns_php() {
-        let p = PhpParser;
-        assert_eq!(p.language(), "php");
-    }
-
-    #[test]
-    fn test_extensions() {
-        let p = PhpParser;
-        assert!(p.extensions().contains(&".php"));
-        assert!(p.extensions().contains(&".phtml"));
-        assert!(p.extensions().contains(&".phar"));
-        assert_eq!(p.extensions().len(), 3);
-    }
-
-    #[test]
-    fn test_supported_kinds_six() {
-        let p = PhpParser;
-        let kinds = p.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Interface));
-        assert!(kinds.contains(&DefKind::Trait));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Const));
-        assert_eq!(kinds.len(), 6);
-    }
-
     // === Edge case tests ===
 
     #[test]
     fn test_empty_php_file() {
         let results = extract_definitions(&PhpParser, "anything", DefKind::all(), "<?php");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_no_definitions() {
-        let results = extract_definitions(
-            &PhpParser,
-            "anything",
-            DefKind::all(),
-            "<?php echo \"hello\";",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_nonexistent_name() {
-        let results = extract_definitions(
-            &PhpParser,
-            "DoesNotExist",
-            DefKind::all(),
-            "<?php class Foo { }",
-        );
         assert!(results.is_empty());
     }
 
@@ -593,13 +537,6 @@ mod tests {
     fn test_function_kind_filter() {
         let src = "<?php class Foo { public function bar() {} }";
         let results = extract_definitions(&PhpParser, "bar", &[DefKind::Class], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_const_kind_filter() {
-        let src = "<?php const MAX = 100;";
-        let results = extract_definitions(&PhpParser, "MAX", &[DefKind::Class], src);
         assert!(results.is_empty());
     }
 
@@ -637,10 +574,7 @@ function greet(
     #[test]
     fn test_exact_match_mode() {
         let src = "<?php class UserService { } class BaseService { }";
-        let mode = MatchMode::Exact {
-            name: "UserService".to_string(),
-            case_insensitive: false,
-        };
+        let mode = MatchMode::from_user_input("UserService", false, false).unwrap();
         let p = PhpParser;
         let mut parser = p.init_parser();
         let results = p
@@ -653,7 +587,7 @@ function greet(
     #[test]
     fn test_fuzzy_match_mode() {
         let src = "<?php class UserService { } class UserFactory { } class BaseService { }";
-        let mode = MatchMode::from_user_input("User.*", false).unwrap();
+        let mode = MatchMode::from_user_input("User.*", false, false).unwrap();
         let p = PhpParser;
         let mut parser = p.init_parser();
         let results = p

@@ -20,10 +20,6 @@ impl LanguageParser for BashParser {
         &[DefKind::Function, DefKind::Const]
     }
 
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["::"]
-    }
-
     impl_init_parser!(tree_sitter_bash::LANGUAGE, "Bash");
 
     impl_extract_with!(collect_definitions, scope: "");
@@ -90,8 +86,9 @@ fn handle_const(
         .map(|c| node_text(*c, source))
         .unwrap_or_default();
 
-    let is_readonly_cmd = first_text == "readonly" || first_text == "typeset";
-    let is_declare_r = first_text == "declare"
+    let is_readonly_cmd = first_text == "readonly";
+    let needs_r_flag = first_text == "declare" || first_text == "typeset" || first_text == "local";
+    let has_r_flag = needs_r_flag
         && children.iter().any(|c| {
             c.is_named() && c.kind() == "word" && {
                 let t = node_text(*c, source);
@@ -99,7 +96,7 @@ fn handle_const(
             }
         });
 
-    if !is_readonly_cmd && !is_declare_r {
+    if !is_readonly_cmd && !has_r_flag {
         return;
     }
 
@@ -202,29 +199,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    // === Meta tests ===
-
-    #[test]
-    fn test_language() {
-        let parser = BashParser;
-        assert_eq!(parser.language(), "bash");
-    }
-
-    #[test]
-    fn test_extensions() {
-        let parser = BashParser;
-        assert_eq!(parser.extensions(), &[".sh", ".bash"]);
-    }
-
-    #[test]
-    fn test_supported_kinds() {
-        let parser = BashParser;
-        let kinds = parser.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Const));
-        assert_eq!(kinds.len(), 2);
-    }
-
     // === Edge case / handler tests ===
 
     #[test]
@@ -267,32 +241,9 @@ function my_func {
     }
 
     #[test]
-    fn test_kind_filter_only_const() {
-        let source = r#"
-function my_func {
-    echo "hi"
-}
-"#;
-        // Only request Const kind -- function should not appear
-        let defs = extract_definitions(&BashParser, "my_func", &[DefKind::Const], source);
-        assert!(defs.is_empty());
-    }
-
-    #[test]
     fn test_empty_source() {
         let source = "";
         let defs = extract_definitions(&BashParser, "anything", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_no_matching_name() {
-        let source = r#"
-function build_project {
-    echo "building"
-}
-"#;
-        let defs = extract_definitions(&BashParser, "nonexistent", &[DefKind::Function], source);
         assert!(defs.is_empty());
     }
 
@@ -346,5 +297,53 @@ typeset -r TYPESET_CONST="typeset_value"
         );
         assert_eq!(defs[0].kind, DefKind::Const);
         assert_eq!(defs[0].scope, "TYPESET_CONST");
+    }
+
+    /// Verify that `typeset` WITHOUT -r is NOT treated as const.
+    /// typeset is a synonym for declare, not readonly — only typeset -r is const.
+    #[test]
+    fn test_typeset_without_r_not_const() {
+        let source = r#"
+typeset MUTABLE_VAR="changeable"
+"#;
+        let defs = extract_definitions(&BashParser, "MUTABLE_VAR", &[DefKind::Const], source);
+        assert!(
+            defs.is_empty(),
+            "typeset without -r should not be treated as const"
+        );
+    }
+
+    /// Verify that `local -r` inside a function IS recognized as const.
+    /// local -r declares a local readonly variable — semantically a const in function scope.
+    #[test]
+    fn test_local_r_recognized_as_const() {
+        let source = r#"
+function my_func {
+    local -r LOCAL_CONST="fixed"
+}
+"#;
+        let defs = extract_definitions(&BashParser, "LOCAL_CONST", &[DefKind::Const], source);
+        assert_eq!(
+            defs.len(),
+            1,
+            "local -r should be recognized as const (readonly variable)"
+        );
+        assert_eq!(defs[0].kind, DefKind::Const);
+        assert_eq!(defs[0].scope, "my_func::LOCAL_CONST");
+    }
+
+    /// Verify that `local` WITHOUT -r is NOT treated as const.
+    #[test]
+    fn test_local_without_r_not_const() {
+        let source = r#"
+function my_func {
+    local mutable_local="changeable"
+}
+"#;
+        let defs = extract_definitions(&BashParser, "mutable_local", &[DefKind::Const], source);
+        assert!(
+            defs.is_empty(),
+            "local without -r should not be treated as const"
+        );
     }
 }

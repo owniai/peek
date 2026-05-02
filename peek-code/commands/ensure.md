@@ -37,4 +37,4 @@ Run `peek --version` first. If peek is not found, install it. If installed, upda
 
 - **`peek` not found after install**: Verify `~/.cargo/bin` (or `%USERPROFILE%\.cargo\bin` on Windows) is in `$PATH`.
 - **Rust not installed**: Ask the user whether to install Rust. If confirmed, help the user install it, then retry cargo methods.
-- **peek-code skill 加载失败 (Unknown skill)**: 通过 `claude plugins install peek-code@vibewire` 安装插件后，当前会话无法立即加载 `peek-code:peek-code` skill，需重启会话后才能使用。
+- **peek-code skill 加载失败 (Unknown skill)**: 通过 `claude plugins install peek-code@vibewire` 安装插件后，当前会话无法立即加载 `peek-code:peek` skill，需重启会话后才能使用。

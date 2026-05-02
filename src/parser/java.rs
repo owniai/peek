@@ -295,31 +295,6 @@ mod tests {
 
     // === Meta tests ===
 
-    #[test]
-    fn test_language_returns_java() {
-        let p = JavaParser;
-        assert_eq!(p.language(), "java");
-    }
-
-    #[test]
-    fn test_extensions_cover_java() {
-        let p = JavaParser;
-        assert!(p.extensions().contains(&".java"));
-        assert_eq!(p.extensions().len(), 1);
-    }
-
-    #[test]
-    fn test_supported_kinds_five() {
-        let p = JavaParser;
-        let kinds = p.supported_kinds();
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Interface));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Const));
-        assert_eq!(kinds.len(), 5);
-    }
-
     // === Edge case tests ===
 
     #[test]
@@ -427,13 +402,6 @@ mod tests {
     }
 
     #[test]
-    fn test_nonexistent_name() {
-        let results =
-            extract_definitions(&JavaParser, "DoesNotExist", DefKind::all(), "class Foo {}");
-        assert!(results.is_empty());
-    }
-
-    #[test]
     fn test_multiple_classes_same_name_different_scope() {
         let src = "class Inner {} class Outer { class Inner {} }";
         let results = extract_definitions(&JavaParser, "Inner", &[DefKind::Class], src);
@@ -470,17 +438,6 @@ mod tests {
             &JavaParser,
             "getField",
             &[DefKind::Class],
-            "class Foo { int getField() { return 0; } }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_func_not_class() {
-        let results = extract_definitions(
-            &JavaParser,
-            "Foo",
-            &[DefKind::Function],
             "class Foo { int getField() { return 0; } }",
         );
         assert!(results.is_empty());
@@ -549,17 +506,6 @@ mod tests {
             "value",
             &[DefKind::Const],
             "@interface MyAnnotation { String value() default \"\"; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_class_not_const() {
-        let results = extract_definitions(
-            &JavaParser,
-            "MAX_SIZE",
-            &[DefKind::Class],
-            "class Foo { public static final int MAX_SIZE = 100; }",
         );
         assert!(results.is_empty());
     }

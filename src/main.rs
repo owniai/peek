@@ -15,7 +15,7 @@ use clap::Parser;
 use crate::cli::{Cli, reorder_cli_args};
 use crate::model::DefKind;
 use crate::output::OutputMode;
-use crate::pattern::{CaseSensitivity, ParsedPattern};
+use crate::pattern::CaseSensitivity;
 use crate::pipeline::{SearchOptions, SearchResult};
 use crate::registry::ParserRegistry;
 
@@ -63,11 +63,16 @@ fn try_main() -> anyhow::Result<ExitCode> {
     let args: Vec<String> = std::env::args().collect();
     let cli = Cli::parse_from(reorder_cli_args(&args));
 
-    let pattern = cli.pattern();
     let files = cli.files();
     let kinds = cli.kinds();
     let no_signature = cli.no_signature();
     let globs = cli.globs();
+
+    // Collect patterns from positional arg and -e/--regexp flags
+    let patterns = cli.collect_patterns();
+    if patterns.is_empty() {
+        anyhow::bail!("error: no pattern specified (use positional argument or -e/--regexp)");
+    }
 
     // Validate --kind tags
     if let Some(tags) = cli.kind_tags() {
@@ -95,8 +100,18 @@ fn try_main() -> anyhow::Result<ExitCode> {
         CaseSensitivity::Sensitive
     };
 
-    // Parse match mode (exact vs fuzzy, with optional scope filter)
-    let parsed = ParsedPattern::parse(pattern, case)?;
+    // Parse each pattern independently
+    let parsed_patterns: Vec<crate::pattern::ParsedPattern> = patterns
+        .iter()
+        .map(|p| crate::pattern::ParsedPattern::parse(p, case, cli.word()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let modes: Vec<crate::parser::MatchMode> =
+        parsed_patterns.iter().map(|p| p.mode().clone()).collect();
+    let display_name: String = parsed_patterns
+        .iter()
+        .map(|p| p.display_name())
+        .collect::<Vec<_>>()
+        .join("|");
 
     // Determine search paths (default to current directory)
     let search_paths: Vec<&Path> = if files.is_empty() {
@@ -150,7 +165,7 @@ fn try_main() -> anyhow::Result<ExitCode> {
 
     // Single search call for all paths (WalkBuilder::add() handles multi-path internally).
     let result = pipeline::search(
-        &parsed,
+        &modes,
         &kinds,
         &search_paths,
         globs,
@@ -176,12 +191,7 @@ fn try_main() -> anyhow::Result<ExitCode> {
     let output = if cli.json() {
         output::format_json_output(&merged_result, output_mode)
     } else {
-        output::format_output(
-            parsed.display_name(),
-            &display_path,
-            &merged_result,
-            output_mode,
-        )
+        output::format_output(&display_name, &display_path, &merged_result, output_mode)
     };
     if !output.is_empty() {
         use std::io::Write;

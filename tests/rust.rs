@@ -28,7 +28,7 @@ fn peek_for_rust_impl_method_scope() {
 
 #[test]
 fn peek_for_rust_mod_nested_scope() {
-    let output = peek(&["-k", "function", "mod_func", "tests/fixtures/rust"]);
+    let output = peek(&["-w", "-k", "function", "mod_func", "tests/fixtures/rust"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -48,7 +48,7 @@ fn peek_for_rust_deeply_nested_scope() {
 
 #[test]
 fn peek_for_rust_impl_method_in_mod_scope() {
-    let output = peek(&["-k", "function", "method", "tests/fixtures/rust"]);
+    let output = peek(&["-w", "-k", "function", "method", "tests/fixtures/rust"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);

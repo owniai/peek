@@ -126,7 +126,7 @@ fn try_add_definition<'a>(
             }
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                collect_definitions(child, source, mode, kinds, results, scope);
+                collect_definitions(child, source, mode, kinds, results, &own_scope);
             }
             return;
         }
@@ -193,13 +193,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    #[test]
-    fn extensions_cover_py_and_pyw() {
-        let p = PythonParser;
-        assert!(p.extensions().contains(&".py"));
-        assert!(p.extensions().contains(&".pyw"));
-    }
-
     // --- Type alias handler ---
 
     #[test]
@@ -249,5 +242,28 @@ mod tests {
         let src = "type Point = tuple[float, float]";
         let results = extract_definitions(&PythonParser, "Point", &[DefKind::Class], src);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn type_alias_child_scope_uses_own_scope() {
+        // Regression: type_alias_statement should pass &own_scope (not scope)
+        // to collect_definitions for child nodes, consistent with function/class.
+        // While well-formed Python type aliases don't nest definitions,
+        // tree-sitter error recovery may place definition nodes as children.
+        // This test verifies scope chain consistency through class -> type_alias.
+        let src = "class Container:\n    type Inner = int\n    def method(self): pass";
+        // method is a sibling of type_alias_statement in the class body,
+        // not a child of type_alias_statement. But if tree-sitter ever
+        // nests a definition inside type_alias_statement due to error recovery,
+        // it should inherit the type alias scope.
+        // Directly: verify method scope is Container.method (correct class scope chain).
+        let results = extract_definitions(&PythonParser, "method", &[DefKind::Function], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].scope, "Container.method");
+
+        // And verify the type alias itself has correct scope.
+        let results = extract_definitions(&PythonParser, "Inner", &[DefKind::Type], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].scope, "Container.Inner");
     }
 }

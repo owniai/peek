@@ -68,7 +68,6 @@ pub mod typescript;
 
 use crate::model::{DefContent, DefKind};
 pub use crate::pattern::MatchMode;
-pub use crate::pattern::ScopeFilter;
 
 pub trait LanguageParser: Send + Sync {
     fn language(&self) -> &'static str;
@@ -82,9 +81,6 @@ pub trait LanguageParser: Send + Sync {
         source: &str,
         parser: &mut Parser,
     ) -> Result<Vec<DefContent>, ()>;
-    fn scope_separators(&self) -> &'static [&'static str] {
-        &["."]
-    }
 }
 
 use tree_sitter::Node;
@@ -406,10 +402,7 @@ pub fn extract_definitions<P: LanguageParser>(
     kinds: &[DefKind],
     source: &str,
 ) -> Vec<DefContent> {
-    let mode = MatchMode::Exact {
-        name: name.to_string(),
-        case_insensitive: false,
-    };
+    let mode = MatchMode::from_user_input(name, false, false).unwrap();
     let mut ts_parser = parser.init_parser();
     parser
         .extract_with(&mode, kinds, source, &mut ts_parser)
@@ -444,8 +437,7 @@ mod tests {
         ) -> Result<Vec<DefContent>, ()> {
             if kinds.contains(&DefKind::Function) {
                 let name = match mode {
-                    MatchMode::Exact { name, .. } => name.clone(),
-                    MatchMode::Fuzzy { .. } => "fuzzy".to_string(),
+                    MatchMode::Regex { .. } => "test".to_string(),
                     MatchMode::All => "*".to_string(),
                 };
                 Ok(vec![DefContent {
@@ -470,10 +462,7 @@ mod tests {
     #[test]
     fn mock_parser_extract_filters_by_kind() {
         let p = MockParser;
-        let mode = MatchMode::Exact {
-            name: "test".to_string(),
-            case_insensitive: false,
-        };
+        let mode = MatchMode::from_user_input("test", false, false).unwrap();
         let mut parser = p.init_parser();
         let results = p
             .extract_with(&mode, &[DefKind::Function], "", &mut parser)

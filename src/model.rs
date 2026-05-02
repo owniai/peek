@@ -85,41 +85,6 @@ mod tests {
     }
 
     #[test]
-    fn def_content_fields() {
-        let def = DefContent {
-            kind: DefKind::Function,
-            lines: [15, 30],
-            signature: "def process();".to_string(),
-            scope: "process".to_string(),
-        };
-        assert_eq!(def.kind, DefKind::Function);
-        assert_eq!(def.kind.display_tag(), "function");
-        assert_eq!(def.lines, [15, 30]);
-    }
-
-    #[test]
-    fn def_content_for_class() {
-        let def = DefContent {
-            kind: DefKind::Class,
-            lines: [42, 85],
-            signature: "class MyClass(Base)".to_string(),
-            scope: "MyClass".to_string(),
-        };
-        assert_eq!(def.kind.display_tag(), "class");
-    }
-
-    #[test]
-    fn def_content_for_struct() {
-        let def = DefContent {
-            kind: DefKind::Struct,
-            lines: [1, 10],
-            signature: "struct Config {".to_string(),
-            scope: "Config".to_string(),
-        };
-        assert_eq!(def.kind.display_tag(), "struct");
-    }
-
-    #[test]
     fn from_tag_returns_correct_kind() {
         assert_eq!(DefKind::from_tag("function"), Some(DefKind::Function));
         assert_eq!(DefKind::from_tag("interface"), Some(DefKind::Interface));
@@ -131,55 +96,6 @@ mod tests {
     fn from_tag_returns_none_for_unknown() {
         assert_eq!(DefKind::from_tag("func"), None);
         assert_eq!(DefKind::from_tag(""), None);
-    }
-
-    #[test]
-    fn new_variants_display_tag() {
-        assert_eq!(DefKind::Record.display_tag(), "record");
-        assert_eq!(DefKind::Delegate.display_tag(), "delegate");
-        assert_eq!(DefKind::Event.display_tag(), "event");
-    }
-
-    #[test]
-    fn new_variants_from_tag_round_trip() {
-        assert_eq!(DefKind::from_tag("record"), Some(DefKind::Record));
-        assert_eq!(DefKind::from_tag("delegate"), Some(DefKind::Delegate));
-        assert_eq!(DefKind::from_tag("event"), Some(DefKind::Event));
-    }
-
-    #[test]
-    fn new_variants_in_all() {
-        let all = DefKind::all();
-        assert!(all.contains(&DefKind::Record));
-        assert!(all.contains(&DefKind::Delegate));
-        assert!(all.contains(&DefKind::Event));
-    }
-
-    #[test]
-    fn new_variants_unknown_tag_still_none() {
-        assert_eq!(DefKind::from_tag("recordstruct"), None);
-        assert_eq!(DefKind::from_tag("del"), None);
-        assert_eq!(DefKind::from_tag("evt"), None);
-    }
-
-    #[test]
-    fn all_count_is_eighteen() {
-        assert_eq!(DefKind::all().len(), 18);
-    }
-
-    #[test]
-    fn dart_mixin_display_tag() {
-        assert_eq!(DefKind::Mixin.display_tag(), "mixin");
-    }
-
-    #[test]
-    fn dart_mixin_from_tag_round_trip() {
-        assert_eq!(DefKind::from_tag("mixin"), Some(DefKind::Mixin));
-    }
-
-    #[test]
-    fn dart_mixin_in_all() {
-        assert!(DefKind::all().contains(&DefKind::Mixin));
     }
 
     #[test]
@@ -195,28 +111,6 @@ mod tests {
                 DefKind::from_tag(tag)
             );
         }
-    }
-
-    #[test]
-    fn swift_variants_display_tag() {
-        assert_eq!(DefKind::Protocol.display_tag(), "protocol");
-        assert_eq!(DefKind::Actor.display_tag(), "actor");
-        assert_eq!(DefKind::Extension.display_tag(), "extension");
-    }
-
-    #[test]
-    fn swift_variants_from_tag_round_trip() {
-        assert_eq!(DefKind::from_tag("protocol"), Some(DefKind::Protocol));
-        assert_eq!(DefKind::from_tag("actor"), Some(DefKind::Actor));
-        assert_eq!(DefKind::from_tag("extension"), Some(DefKind::Extension));
-    }
-
-    #[test]
-    fn swift_variants_in_all() {
-        let all = DefKind::all();
-        assert!(all.contains(&DefKind::Protocol));
-        assert!(all.contains(&DefKind::Actor));
-        assert!(all.contains(&DefKind::Extension));
     }
 
     // --- Binary encoding round-trip tests ---

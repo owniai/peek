@@ -64,6 +64,9 @@ fn collect_definitions(
         "function_body" => {
             // Don't recurse into function bodies
         }
+        "operator_signature" => {
+            handle_operator_sig(node, source, mode, kinds, results, scope);
+        }
         "getter_signature" | "setter_signature" => {
             handle_accessor(node, source, mode, kinds, results, scope);
         }
@@ -83,6 +86,8 @@ fn collect_definitions(
 }
 
 /// Handle class_declaration: extract class definition and recurse into class_body.
+/// Dart 3 `mixin class` is parsed as class_declaration with a "mixin" named child.
+/// It is semantically both a class and a mixin, so we emit results for both kinds.
 fn handle_class(
     node: Node,
     source: &str,
@@ -92,16 +97,26 @@ fn handle_class(
     scope: &str,
 ) {
     let own_scope = build_scope_from_node(node, source, scope, ".");
-    if kinds.contains(&DefKind::Class) {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            let name_ref = node_text_ref(name_node, source);
-            if mode.matches_ident(name_ref) {
-                let signature = extract_signature_to_body(node, source);
-                let start_row = node.start_position().row + 1;
-                let [start, end] = line_range(start_row, node);
+    let has_mixin = has_child_by_kind(node, "mixin");
 
+    if let Some(name_node) = node.child_by_field_name("name") {
+        let name_ref = node_text_ref(name_node, source);
+        if mode.matches_ident(name_ref) {
+            let signature = extract_signature_to_body(node, source);
+            let start_row = node.start_position().row + 1;
+            let [start, end] = line_range(start_row, node);
+
+            if kinds.contains(&DefKind::Class) {
                 results.push(DefContent {
                     kind: DefKind::Class,
+                    lines: [start, end],
+                    signature: signature.clone(),
+                    scope: own_scope.clone(),
+                });
+            }
+            if has_mixin && kinds.contains(&DefKind::Mixin) {
+                results.push(DefContent {
+                    kind: DefKind::Mixin,
                     lines: [start, end],
                     signature,
                     scope: own_scope.clone(),
@@ -280,21 +295,63 @@ fn handle_function_sig(
         return;
     }
 
-    // For top-level function_signature, the signature spans from function_signature
-    // to the start of the sibling function_body (or end of node if no body sibling)
     let signature = extract_signature_to_body(node, source);
-    let start_row = node.start_position().row + 1;
-    // For top-level functions, end line includes the function_body sibling
-    // We use function_signature node for line_range; the sibling function_body extends coverage
-    let [start, end] = line_range(start_row, node);
+    let start_row = (node.start_position().row + 1) as u32;
+    let end_row = dart_end_row(node);
 
     let own_scope = build_scope_from_node(node, source, scope, ".");
     results.push(DefContent {
         kind: DefKind::Function,
-        lines: [start, end],
+        lines: [start_row, end_row],
         signature,
         scope: own_scope,
     });
+}
+
+/// Handle operator_signature (Dart operator overloading).
+/// Node structure: operator_signature → type_identifier, operator, *_operator, formal_parameter_list
+fn handle_operator_sig(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Function) {
+        return;
+    }
+
+    let operator_name = extract_operator_name(node, source);
+    if !mode.matches_ident(&operator_name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", &operator_name);
+    let signature = first_line_of_node(node, source);
+    let signature = normalize_signature(&signature);
+    let start_row = (node.start_position().row + 1) as u32;
+    let end_row = dart_end_row(node);
+
+    results.push(DefContent {
+        kind: DefKind::Function,
+        lines: [start_row, end_row],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Extract operator name from operator_signature node.
+/// Finds the *_operator child (e.g., binary_operator "+") and returns "operator+".
+fn extract_operator_name(node: Node, source: &str) -> String {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.is_named() && child.kind().ends_with("_operator") {
+            let symbol = node_text_ref(child, source);
+            return format!("operator{}", symbol);
+        }
+    }
+    "operator".to_string()
 }
 
 /// Handle getter_signature and setter_signature at top level.
@@ -323,12 +380,12 @@ fn handle_accessor(
     let own_scope = build_scope_from_node(node, source, scope, ".");
     let signature = first_line_of_node(node, source);
     let signature = normalize_signature(&signature);
-    let start_row = node.start_position().row + 1;
-    let [start, end] = line_range(start_row, node);
+    let start_row = (node.start_position().row + 1) as u32;
+    let end_row = dart_end_row(node);
 
     results.push(DefContent {
         kind: DefKind::Function,
-        lines: [start, end],
+        lines: [start_row, end_row],
         signature,
         scope: own_scope,
     });
@@ -381,28 +438,43 @@ fn handle_declaration(
     // Check for method signatures inside declaration (e.g., constructor)
     // For constructor_signature, we treat it as a Function
     if kinds.contains(&DefKind::Function) {
-        for child in children.iter().copied() {
+        for child in children.iter() {
             match child.kind() {
                 "constructor_signature"
                 | "constant_constructor_signature"
                 | "factory_constructor_signature" => {
-                    // Extract constructor name: these nodes have no "name" field,
-                    // first identifier child is the class name
-                    if let Some(name_node) = first_child_by_kind(child, "identifier") {
-                        let name_ref = node_text_ref(name_node, source);
-                        if mode.matches_ident(name_ref) {
-                            let own_scope = build_scope(scope, ".", name_ref);
-                            let signature = extract_signature_to_body(node, source);
-                            let start_row = node.start_position().row + 1;
-                            let [start, end] = line_range(start_row, node);
+                    // constructor_signature children: identifier (class), ".", identifier (name)?
+                    // Named constructor: Point.origin() → two identifiers
+                    // Default constructor: Point() → one identifier (class name only)
+                    let mut cursor = child.walk();
+                    let idents: Vec<Node> = child
+                        .children(&mut cursor)
+                        .filter(|c| c.kind() == "identifier")
+                        .collect();
 
-                            results.push(DefContent {
-                                kind: DefKind::Function,
-                                lines: [start, end],
-                                signature,
-                                scope: own_scope,
-                            });
-                        }
+                    let (match_name, ctor_scope) = if idents.len() >= 2 {
+                        // Named constructor: match on constructor name, scope is Class.name
+                        let ctor_name = node_text_ref(idents[1], source);
+                        (ctor_name, build_scope(scope, ".", ctor_name))
+                    } else if let Some(class_ident) = idents.first() {
+                        // Default constructor: match on class name, scope is Class.ClassName
+                        let class_name = node_text_ref(*class_ident, source);
+                        (class_name, build_scope(scope, ".", class_name))
+                    } else {
+                        continue;
+                    };
+
+                    if mode.matches_ident(match_name) {
+                        let signature = extract_signature_to_body(node, source);
+                        let start_row = (node.start_position().row + 1) as u32;
+                        let end_row = dart_end_row(node);
+
+                        results.push(DefContent {
+                            kind: DefKind::Function,
+                            lines: [start_row, end_row],
+                            signature,
+                            scope: ctor_scope,
+                        });
                     }
                 }
                 "function_signature" => {
@@ -412,12 +484,12 @@ fn handle_declaration(
                         if mode.matches_ident(name_ref) {
                             let own_scope = build_scope(scope, ".", name_ref);
                             let signature = extract_signature_to_body(node, source);
-                            let start_row = node.start_position().row + 1;
-                            let [start, end] = line_range(start_row, node);
+                            let start_row = (node.start_position().row + 1) as u32;
+                            let end_row = dart_end_row(node);
 
                             results.push(DefContent {
                                 kind: DefKind::Function,
-                                lines: [start, end],
+                                lines: [start_row, end_row],
                                 signature,
                                 scope: own_scope,
                             });
@@ -431,6 +503,34 @@ fn handle_declaration(
 }
 
 // === Helper functions ===
+
+/// Check whether a node has a direct child (named or anonymous) of the given kind.
+fn has_child_by_kind(node: Node, kind: &str) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).any(|c| c.kind() == kind)
+}
+
+/// Find the end row for a Dart definition, including the function_body if present.
+/// In tree-sitter-dart, function_body is a sibling of the signature node (not a child):
+/// - Top-level: function_body is a sibling of function_signature under source_file
+/// - Class member: function_body is a sibling of method_signature (parent of the signature node)
+fn dart_end_row(node: Node) -> u32 {
+    if let Some(body) = node.next_named_sibling() {
+        if body.kind() == "function_body" {
+            return (body.end_position().row + 1) as u32;
+        }
+    }
+    if let Some(parent) = node.parent() {
+        if parent.kind() == "method_signature" {
+            if let Some(body) = parent.next_named_sibling() {
+                if body.kind() == "function_body" {
+                    return (body.end_position().row + 1) as u32;
+                }
+            }
+        }
+    }
+    (node.end_position().row + 1) as u32
+}
 
 /// Extract const names from a static_final_declaration_list.
 /// static_final_declaration has no "name" field; the first identifier child is the name.
@@ -487,47 +587,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    /// Extract all definitions using all supported kinds with a wildcard match.
-    fn parse_all(source: &str) -> Vec<DefContent> {
-        let parser = DartParser;
-        let mut ts_parser = parser.init_parser();
-        let mode = MatchMode::Exact {
-            name: "*".to_string(),
-            case_insensitive: false,
-        };
-        let all_kinds = parser.supported_kinds().to_vec();
-        parser
-            .extract_with(&mode, &all_kinds, source, &mut ts_parser)
-            .unwrap()
-    }
-
-    // --- Meta tests ---
-
-    #[test]
-    fn test_language() {
-        let parser = DartParser;
-        assert_eq!(parser.language(), "dart");
-    }
-
-    #[test]
-    fn test_extensions() {
-        let parser = DartParser;
-        assert_eq!(parser.extensions(), &[".dart"]);
-    }
-
-    #[test]
-    fn test_supported_kinds() {
-        let parser = DartParser;
-        let kinds = parser.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Const));
-        assert!(kinds.contains(&DefKind::Type));
-        assert!(kinds.contains(&DefKind::Mixin));
-        assert!(kinds.contains(&DefKind::Extension));
-    }
-
     // --- Edge case / handler tests ---
 
     #[test]
@@ -564,33 +623,54 @@ class MyClass {
     // --- Bug verification tests ---
 
     #[test]
-    fn test_mixin_class_not_found_via_mixin_kind() {
-        // Dart 3 "mixin class" is a class that can also be used as a mixin.
-        // tree-sitter-dart parses it as class_declaration with a "mixin" anonymous child.
-        // The regex for DefKind::Mixin is "(?:base\s+)?mixin\s+" which does NOT match "mixin class".
-        // So "mixin class Draggable" cannot be found when searching for Mixin kind.
-        // It CAN be found as Class kind (because the class regex's * allows zero matches,
-        // matching "class Draggable" inside "mixin class Draggable").
+    fn test_mixin_class_found_via_both_class_and_mixin_kind() {
+        // Dart 3 "mixin class" is both a class and a mixin semantically.
+        // tree-sitter-dart parses it as class_declaration with a "mixin" named child.
+        // Both -k class and -k mixin should find it.
         let source = r#"
 mixin class Draggable {
   void drag() {}
 }
 "#;
-        // Searching as Mixin kind — fails because regex is "(?:base\s+)?mixin\s+" which doesn't match "mixin class"
-        let defs = extract_definitions(&DartParser, "Draggable", &[DefKind::Mixin], source);
+        // Searching as Class kind — should find it
+        let class_defs = extract_definitions(&DartParser, "Draggable", &[DefKind::Class], source);
         assert_eq!(
-            defs.len(),
-            0,
-            "mixin class should not be found via Mixin regex since 'mixin class' != 'mixin '"
+            class_defs.len(),
+            1,
+            "mixin class should be found via Class kind"
+        );
+        assert_eq!(class_defs[0].kind, DefKind::Class);
+
+        // Searching as Mixin kind — should also find it
+        let mixin_defs = extract_definitions(&DartParser, "Draggable", &[DefKind::Mixin], source);
+        assert_eq!(
+            mixin_defs.len(),
+            1,
+            "mixin class should be found via Mixin kind"
+        );
+        assert_eq!(mixin_defs[0].kind, DefKind::Mixin);
+
+        // Both results share the same location
+        assert_eq!(class_defs[0].lines, mixin_defs[0].lines);
+    }
+
+    #[test]
+    fn test_plain_class_not_found_via_mixin_kind() {
+        // A plain class (without mixin modifier) should NOT be found via Mixin kind
+        let source = r#"
+class PlainClass {
+  void method() {}
+}
+"#;
+        let defs = extract_definitions(&DartParser, "PlainClass", &[DefKind::Mixin], source);
+        assert!(
+            defs.is_empty(),
+            "plain class should not be found via Mixin kind"
         );
     }
 
     #[test]
-    fn test_operator_method_not_found() {
-        // Dart operator overloading uses `operatorSignature` in tree-sitter-dart.
-        // In the AST: method_signature -> operator_signature (not function_signature).
-        // The parser's handle_function_sig only matches "function_signature",
-        // so operator methods are silently skipped.
+    fn test_binary_operator_found() {
         let source = r#"
 class Vector {
   final int x, y;
@@ -598,27 +678,46 @@ class Vector {
   Vector operator +(Vector other) => Vector(x + other.x, y + other.y);
 }
 "#;
-        // operator+ is a method of Vector, should be found as Function
-        let defs = parse_all(source);
-        let operator_defs: Vec<&DefContent> = defs
-            .iter()
-            .filter(|d| d.signature.contains("operator"))
-            .collect();
-        // BUG: operator methods are NOT extracted because the parser doesn't handle operator_signature
+        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Function], source);
+        assert_eq!(defs.len(), 1, "operator+ should be extracted");
+        assert_eq!(defs[0].kind, DefKind::Function);
+        assert_eq!(defs[0].scope, "Vector.operator+");
+        assert!(defs[0].signature.contains("operator"));
+    }
+
+    #[test]
+    fn test_comparison_operator_found() {
+        let source = r#"
+class Money {
+  final int amount;
+  Money(this.amount);
+  bool operator ==(Object other) => other is Money && amount == other.amount;
+}
+"#;
+        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Function], source);
+        assert_eq!(defs.len(), 1, "operator== should be extracted");
+        assert_eq!(defs[0].scope, "Money.operator==");
+    }
+
+    #[test]
+    fn test_operator_kind_filtered_out() {
+        let source = r#"
+class Vector {
+  Vector operator +(Vector other) => Vector(0, 0);
+}
+"#;
+        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Class], source);
         assert!(
-            operator_defs.is_empty(),
-            "operator methods should NOT be extracted (bug confirmed)"
+            defs.is_empty(),
+            "operator should not be found when kind is Class"
         );
     }
 
     #[test]
-    fn test_named_constructor_cannot_be_found_by_name() {
+    fn test_named_constructor_found_by_name() {
         // In Dart, MyClass.named(int x) is a named constructor.
         // tree-sitter-dart represents it as constructor_signature with TWO identifier children:
         //   identifier "MyClass" (class name) and identifier "named" (constructor name).
-        // The parser's handle_declaration uses first_child_by_kind(child, "identifier")
-        // which gets the FIRST identifier (class name "MyClass"), ignoring the constructor name.
-        // So searching for the named constructor "named" will NOT find it.
         let source = r#"
 class Point {
   final int x, y;
@@ -626,12 +725,19 @@ class Point {
   Point.origin() : x = 0, y = 0;
 }
 "#;
-        // Search for named constructor "origin" — should find it but doesn't
+        // Search for named constructor "origin" — should find it
         let defs = extract_definitions(&DartParser, "origin", &[DefKind::Function], source);
-        assert_eq!(
-            defs.len(),
-            0,
-            "named constructor 'origin' cannot be found (bug confirmed)"
+        assert_eq!(defs.len(), 1, "named constructor 'origin' should be found");
+        assert_eq!(defs[0].scope, "Point.origin");
+        assert!(defs[0].signature.contains("origin"));
+
+        // Default constructor should still work — search by class name "Point"
+        let default_defs = extract_definitions(&DartParser, "Point", &[DefKind::Function], source);
+        // Both constructors match: default (name=Point) and named (class=Point for scope)
+        // The default constructor matches on "Point" directly
+        assert!(
+            !default_defs.is_empty(),
+            "default constructor should be found via class name"
         );
     }
 
@@ -701,112 +807,5 @@ abstract class Repository {
             "abstract method 'delete' should be extracted"
         );
         assert_eq!(delete_defs[0].scope, "Repository.delete");
-    }
-
-    // === DIAGNOSTIC: dump AST node types for key Dart constructs ===
-
-    fn dump_tree(node: tree_sitter::Node, source: &str, depth: usize) {
-        let indent = "  ".repeat(depth);
-        let text = node.utf8_text(source.as_bytes()).unwrap_or("?");
-        let short_text = if text.len() > 60 { &text[..60] } else { text };
-        let field_name = node
-            .field_name_for_child(0)
-            .map(|f| format!("[{}] ", f))
-            .unwrap_or_default();
-        eprintln!(
-            "{}{}{} ({}) field_name_for_child_0={:?}",
-            indent,
-            field_name,
-            node.kind(),
-            short_text.replace('\n', "\\n"),
-            node.field_name_for_child(0)
-        );
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            dump_tree(child, source, depth + 1);
-        }
-    }
-
-    #[test]
-    fn diag_dump_mixin_class_ast() {
-        let source = r#"
-mixin class Draggable {
-  void drag() {}
-}
-"#;
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_dart::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        eprintln!("=== mixin class AST ===");
-        dump_tree(tree.root_node(), source, 0);
-    }
-
-    #[test]
-    fn diag_dump_named_constructor_ast() {
-        let source = r#"
-class MyClass {
-  MyClass.named(int x);
-}
-"#;
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_dart::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        eprintln!("=== named constructor AST ===");
-        dump_tree(tree.root_node(), source, 0);
-    }
-
-    #[test]
-    fn diag_dump_operator_ast() {
-        let source = r#"
-class Vector {
-  final int x, y;
-  Vector(this.x, this.y);
-  Vector operator +(Vector other) => Vector(x + other.x, y + other.y);
-}
-"#;
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_dart::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        eprintln!("=== operator overloading AST ===");
-        dump_tree(tree.root_node(), source, 0);
-    }
-
-    #[test]
-    fn diag_dump_getter_setter_top_level_ast() {
-        let source = r#"
-int get topLevelGetter => 42;
-set topLevelSetter(int value) {}
-"#;
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_dart::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        eprintln!("=== top-level getter/setter AST ===");
-        dump_tree(tree.root_node(), source, 0);
-    }
-
-    #[test]
-    fn diag_dump_enum_with_method_ast() {
-        let source = r#"
-enum Status {
-  active, inactive, pending;
-
-  String label() => name;
-}
-"#;
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_dart::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        eprintln!("=== enum with method AST ===");
-        dump_tree(tree.root_node(), source, 0);
     }
 }

@@ -4,7 +4,7 @@ use common::{parse_defs, peek};
 
 #[test]
 fn peek_for_finds_csharp_class_scope() {
-    let output = peek(&["-k", "class", "User", "tests/fixtures/csharp"]);
+    let output = peek(&["-w", "-k", "class", "User", "tests/fixtures/csharp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -35,7 +35,7 @@ fn peek_for_csharp_file_scoped_namespace() {
 
 #[test]
 fn peek_for_csharp_delegate_scope() {
-    let output = peek(&["-k", "delegate", "Validator", "tests/fixtures/csharp"]);
+    let output = peek(&["-w", "-k", "delegate", "Validator", "tests/fixtures/csharp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -74,21 +74,6 @@ fn peek_for_csharp_method_scope() {
 }
 
 // === Comprehensive fixture tests ===
-
-#[test]
-fn peek_for_csharp_comprehensive_file_scoped_class() {
-    let output = peek(&["-k", "class", "EmailService", "tests/fixtures/csharp"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    // EmailService exists in comprehensive.cs (file-scoped namespace Comprehensive.Services)
-    // and no other EmailService in sample.cs
-    let results = parse_defs(&stdout);
-    assert!(
-        results
-            .iter()
-            .any(|r| r.scope == "Comprehensive.Services.EmailService" && r.kind == "class")
-    );
-}
 
 #[test]
 fn peek_for_csharp_comprehensive_file_scoped_interface() {

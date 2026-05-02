@@ -4,8 +4,7 @@ use std::sync::Mutex;
 
 use crate::cache::{self, CacheEvent, CacheIndex, CacheOutcome};
 use crate::model::{DefKind, FileDefs};
-use crate::parser::{MatchMode, ScopeFilter};
-use crate::pattern::ParsedPattern;
+use crate::parser::MatchMode;
 use crate::registry::ParserRegistry;
 
 const PARSE_FAILURE_MSG: &str = "tree-sitter parse failure";
@@ -29,16 +28,13 @@ pub struct SearchOptions {
 }
 
 pub fn search(
-    parsed: &ParsedPattern,
+    modes: &[MatchMode],
     kinds: &[DefKind],
     paths: &[&Path],
     globs: &[String],
     options: &SearchOptions,
     registry: &ParserRegistry,
 ) -> anyhow::Result<SearchResult> {
-    let mode = parsed.mode();
-    let scope_filter = parsed.scope_filter();
-
     // Convert relative paths to absolute using current_dir().join() (not canonicalize,
     // which produces UNC \\?\ paths on Windows incompatible with ignore::WalkBuilder).
     // This ensures WalkBuilder produces absolute paths that align with CacheManager's
@@ -103,9 +99,6 @@ pub fn search(
         builder.overrides(overrides.build().expect("Failed to build overrides"));
     }
 
-    // Determine which languages to search based on scope separator
-    let scope_sep = scope_filter.map(|f| f.separator());
-
     // Phase 1: Cache preparation — load existing cache.bin if present.
     let project_root = cache::find_project_root(&root).unwrap_or_else(|| root.clone());
     let cache_path = project_root.join(".peek-cache").join("cache.bin");
@@ -127,7 +120,7 @@ pub fn search(
         // Non-Copy types: capture as references (factory is FnMut, called once per thread)
         let project_root = &project_root;
         let cache_index = &cache_index;
-        let mode = &mode;
+        let modes = &modes;
         let results = &results;
         let cache_events = &cache_events;
         let read_errors = &read_errors;
@@ -158,16 +151,11 @@ pub fn search(
 
                 let path = entry.path();
 
-                // Extension filter + scope separator filter
+                // Extension filter
                 let parser = match registry.get_by_ext(path) {
                     Some(p) => p,
                     None => return ignore::WalkState::Continue,
                 };
-                if let Some(sep) = scope_sep {
-                    if !parser.scope_separators().contains(&sep) {
-                        return ignore::WalkState::Continue;
-                    }
-                }
 
                 // Get or create thread-local tree-sitter parser
                 let ts_parser = parser_cache
@@ -206,7 +194,7 @@ pub fn search(
                                         file: path_buf.clone(),
                                         defs,
                                     };
-                                    filter_file_defs(&mut file_defs, mode, kinds, scope_filter);
+                                    filter_file_defs(&mut file_defs, modes, kinds);
                                     cache_events.lock().unwrap().push((
                                         cache_entry.path_hash(),
                                         CacheEvent::Hit(cache_entry),
@@ -219,7 +207,8 @@ pub fn search(
                         }
                     }
 
-                    // Cache miss/stale/decode-failure: read source and parse
+                    // Cache miss/stale/decode-failure: stat first, then read and parse
+                    let file_meta = std::fs::metadata(path).ok();
                     let source = match std::fs::read_to_string(path) {
                         Ok(s) => s,
                         Err(e) => {
@@ -237,10 +226,8 @@ pub fn search(
                                 file: path_buf.clone(),
                                 defs: defs.clone(),
                             };
-                            filter_file_defs(&mut file_defs, mode, kinds, scope_filter);
-                            // Re-stat to get mtime/size that matches the content we just read
-                            let fresh_meta = std::fs::metadata(path).ok();
-                            let event = fresh_meta
+                            filter_file_defs(&mut file_defs, modes, kinds);
+                            let event = file_meta
                                 .as_ref()
                                 .and_then(|m| cache::mtime_millis(m).map(|t| (t, m.len())))
                                 .map(|(mtime, size)| CacheEvent::Miss {
@@ -295,7 +282,7 @@ pub fn search(
                             file: path_buf.clone(),
                             defs: defs.clone(),
                         };
-                        filter_file_defs(&mut file_defs, mode, kinds, scope_filter);
+                        filter_file_defs(&mut file_defs, modes, kinds);
                         if let (Some(ph_val), Some(mtime)) = (ph, file_mtime) {
                             cache_events.lock().unwrap().push((
                                 ph_val,
@@ -380,46 +367,19 @@ pub fn search(
     })
 }
 
-/// Scope separators used across all language parsers.
-/// `.` — most languages (Python, JS/TS, Go, Dart, C#/Java/Kotlin/Ruby, Lua, Swift)
-/// `:` — C++/Bash/PHP/Rust `::`, rsplit on `:` skips empty segments from `::`
-/// `\` — PHP namespace separator
-const SCOPE_SEPARATORS: &[char] = &['.', ':', '\\'];
-
-/// Extract the definition name from the tail of a scope string.
-/// Splits by scope separators, returning the last non-empty segment.
-fn extract_name_from_scope(scope: &str) -> &str {
-    scope
-        .rsplit(SCOPE_SEPARATORS)
-        .find(|s| !s.is_empty())
-        .unwrap_or("")
-}
-
-/// Filter definitions within a FileDefs by kinds, match mode, and optional scope filter.
+/// Filter definitions within a FileDefs by kinds and match mode.
 /// Retains matching definitions in place; does not remove the FileDefs even if empty.
-fn filter_file_defs(
-    file_defs: &mut FileDefs,
-    mode: &MatchMode,
-    kinds: &[DefKind],
-    scope_filter: Option<&ScopeFilter>,
-) {
-    file_defs.defs.retain(|d| {
-        kinds.contains(&d.kind) && {
-            let short_name = extract_name_from_scope(&d.scope);
-            let name_matches = mode.matches_ident(short_name) || mode.matches_ident(&d.scope);
-            if let Some(filter) = scope_filter {
-                name_matches && filter.matches_scope(&d.scope)
-            } else {
-                name_matches
-            }
-        }
-    });
+fn filter_file_defs(file_defs: &mut FileDefs, modes: &[MatchMode], kinds: &[DefKind]) {
+    file_defs
+        .defs
+        .retain(|d| kinds.contains(&d.kind) && modes.iter().any(|m| m.matches_ident(&d.scope)));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::{DefContent, DefKind, FileDefs};
+    use crate::parser::MatchMode;
     use crate::parser::python::PythonParser;
     use crate::pattern::{CaseSensitivity, ParsedPattern};
     use crate::registry::ParserRegistry;
@@ -438,12 +398,21 @@ mod tests {
         }
     }
 
+    fn parse_mode(name: &str) -> Vec<MatchMode> {
+        vec![
+            ParsedPattern::parse(name, CaseSensitivity::Sensitive, false)
+                .unwrap()
+                .mode()
+                .clone(),
+        ]
+    }
+
     #[test]
     fn search_finds_python_function_in_fixtures() {
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("top_level_func", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("top_level_func");
         let results = search(
-            &parsed,
+            &modes,
             &[DefKind::Function],
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -461,9 +430,9 @@ mod tests {
     #[test]
     fn search_finds_python_class_in_fixtures() {
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("MyClass", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("MyClass");
         let results = search(
-            &parsed,
+            &modes,
             &[DefKind::Class],
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -480,10 +449,9 @@ mod tests {
     #[test]
     fn search_returns_empty_for_unknown_name() {
         let reg = build_registry();
-        let parsed =
-            ParsedPattern::parse("does_not_exist_anywhere", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("does_not_exist_anywhere");
         let results = search(
-            &parsed,
+            &modes,
             DefKind::all(),
             &[Path::new("tests/fixtures")],
             &[],
@@ -498,9 +466,9 @@ mod tests {
     #[test]
     fn results_grouped_by_file() {
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("MyClass", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("MyClass");
         let results = search(
-            &parsed,
+            &modes,
             DefKind::all(),
             &[Path::new("tests/fixtures")],
             &[],
@@ -530,9 +498,9 @@ mod tests {
     #[test]
     fn search_multi_path_works() {
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("MyClass", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("MyClass");
         let results = search(
-            &parsed,
+            &modes,
             DefKind::all(),
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -543,7 +511,7 @@ mod tests {
         assert!(!results.definitions.is_empty());
         // Multi-path with overlapping directories: parallel walk does not dedup (ripgrep-consistent)
         let results2 = search(
-            &parsed,
+            &modes,
             DefKind::all(),
             &[
                 Path::new("tests/fixtures/python"),
@@ -555,42 +523,6 @@ mod tests {
         )
         .unwrap();
         assert!(results2.definitions.len() >= results.definitions.len());
-    }
-
-    // --- extract_name_from_scope ---
-
-    #[test]
-    fn extract_name_dot_scope() {
-        assert_eq!(extract_name_from_scope("MyClass.myMethod"), "myMethod");
-    }
-
-    #[test]
-    fn extract_name_double_colon_scope() {
-        assert_eq!(
-            extract_name_from_scope("MyModule::MyClass::method"),
-            "method"
-        );
-    }
-
-    #[test]
-    fn extract_name_backslash_scope() {
-        assert_eq!(extract_name_from_scope("App\\Models\\User"), "User");
-    }
-
-    #[test]
-    fn extract_name_toplevel() {
-        assert_eq!(extract_name_from_scope("MyClass"), "MyClass");
-    }
-
-    #[test]
-    fn extract_name_empty_scope() {
-        assert_eq!(extract_name_from_scope(""), "");
-    }
-
-    #[test]
-    fn extract_name_trailing_separator() {
-        // Trailing separator is unusual but rsplit returns last non-empty segment
-        assert_eq!(extract_name_from_scope("Foo."), "Foo");
     }
 
     // --- filter_definitions ---
@@ -617,8 +549,7 @@ mod tests {
                 scope: "c".into(),
             },
         ]);
-        let mode = MatchMode::All;
-        filter_file_defs(&mut fd, &mode, &[DefKind::Function], None);
+        filter_file_defs(&mut fd, &[MatchMode::All], &[DefKind::Function]);
         assert_eq!(fd.defs.len(), 2);
         assert!(fd.defs.iter().all(|d| d.kind == DefKind::Function));
     }
@@ -639,11 +570,8 @@ mod tests {
                 scope: "bar".into(),
             },
         ]);
-        let mode = MatchMode::Exact {
-            name: "foo".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, &[DefKind::Function], None);
+        let mode = MatchMode::from_user_input("foo", false, false).unwrap();
+        filter_file_defs(&mut fd, &[mode], &[DefKind::Function]);
         assert_eq!(fd.defs.len(), 1);
         assert_eq!(fd.defs[0].scope, "foo");
     }
@@ -664,11 +592,8 @@ mod tests {
                 scope: "method".into(),
             },
         ]);
-        let mode = MatchMode::Exact {
-            name: "method".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), None);
+        let mode = MatchMode::from_user_input("method", false, false).unwrap();
+        filter_file_defs(&mut fd, &[mode], DefKind::all());
         assert_eq!(fd.defs.len(), 2);
     }
 
@@ -688,11 +613,8 @@ mod tests {
                 scope: "foo".into(),
             },
         ]);
-        let mode = MatchMode::Exact {
-            name: "foo".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, &[DefKind::Function], None);
+        let mode = MatchMode::from_user_input("foo", false, false).unwrap();
+        filter_file_defs(&mut fd, &[mode], &[DefKind::Function]);
         assert_eq!(fd.defs.len(), 1);
         assert_eq!(fd.defs[0].kind, DefKind::Function);
     }
@@ -713,11 +635,8 @@ mod tests {
                 scope: "run".into(),
             },
         ]);
-        let mode = MatchMode::Exact {
-            name: "Engine::start".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), None);
+        let mode = MatchMode::from_user_input("Engine::start", false, false).unwrap();
+        filter_file_defs(&mut fd, &[mode], DefKind::all());
         assert_eq!(fd.defs.len(), 1);
         assert_eq!(fd.defs[0].scope, "Engine::start");
     }
@@ -730,12 +649,131 @@ mod tests {
             signature: "void Engine::start()".into(),
             scope: "Engine::start".into(),
         }]);
-        let mode = MatchMode::Exact {
-            name: "start".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), None);
+        let mode = MatchMode::from_user_input("start", false, false).unwrap();
+        filter_file_defs(&mut fd, &[mode], DefKind::all());
         assert_eq!(fd.defs.len(), 1);
+    }
+
+    #[test]
+    fn filter_substring_matches_scope() {
+        let mut fd = make_fd(vec![
+            DefContent {
+                kind: DefKind::Function,
+                lines: [1, 1],
+                signature: "fn method".into(),
+                scope: "MyClass.method".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [2, 2],
+                signature: "fn other".into(),
+                scope: "OtherClass.other".into(),
+            },
+        ]);
+        let mode = MatchMode::from_user_input("Class", false, false).unwrap();
+        filter_file_defs(&mut fd, &[mode], DefKind::all());
+        assert_eq!(fd.defs.len(), 2);
+    }
+
+    // --- Multi-mode filter ---
+
+    #[test]
+    fn filter_multi_mode_literal_or() {
+        let mut fd = make_fd(vec![
+            DefContent {
+                kind: DefKind::Function,
+                lines: [1, 1],
+                signature: "fn foo".into(),
+                scope: "foo".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [2, 2],
+                signature: "fn bar".into(),
+                scope: "bar".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [3, 3],
+                signature: "fn baz".into(),
+                scope: "baz".into(),
+            },
+        ]);
+        let modes = vec![
+            MatchMode::from_user_input("foo", false, false).unwrap(),
+            MatchMode::from_user_input("bar", false, false).unwrap(),
+        ];
+        filter_file_defs(&mut fd, &modes, DefKind::all());
+        assert_eq!(fd.defs.len(), 2);
+        assert_eq!(fd.defs[0].scope, "foo");
+        assert_eq!(fd.defs[1].scope, "bar");
+    }
+
+    #[test]
+    fn filter_multi_mode_with_all_short_circuits() {
+        let mut fd = make_fd(vec![
+            DefContent {
+                kind: DefKind::Function,
+                lines: [1, 1],
+                signature: "fn foo".into(),
+                scope: "foo".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [2, 2],
+                signature: "fn bar".into(),
+                scope: "bar".into(),
+            },
+        ]);
+        let modes = vec![
+            MatchMode::from_user_input("nonexistent", false, false).unwrap(),
+            MatchMode::All,
+        ];
+        filter_file_defs(&mut fd, &modes, DefKind::all());
+        assert_eq!(fd.defs.len(), 2);
+    }
+
+    #[test]
+    fn filter_multi_mode_empty_matches_nothing() {
+        let mut fd = make_fd(vec![DefContent {
+            kind: DefKind::Function,
+            lines: [1, 1],
+            signature: "fn foo".into(),
+            scope: "foo".into(),
+        }]);
+        let modes: Vec<MatchMode> = vec![];
+        filter_file_defs(&mut fd, &modes, DefKind::all());
+        assert!(fd.defs.is_empty());
+    }
+
+    #[test]
+    fn filter_multi_mode_mixed_literal_and_fuzzy() {
+        let mut fd = make_fd(vec![
+            DefContent {
+                kind: DefKind::Function,
+                lines: [1, 1],
+                signature: "fn foo".into(),
+                scope: "foo".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [2, 2],
+                signature: "fn bar_baz".into(),
+                scope: "bar_baz".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [3, 3],
+                signature: "fn qux".into(),
+                scope: "qux".into(),
+            },
+        ]);
+        let regex_mode = MatchMode::from_user_input("bar.*", false, false).unwrap();
+        let simple_mode = MatchMode::from_user_input("foo", false, false).unwrap();
+        filter_file_defs(&mut fd, &[simple_mode, regex_mode], DefKind::all());
+        assert_eq!(fd.defs.len(), 2);
+        assert_eq!(fd.defs[0].scope, "foo");
+        assert_eq!(fd.defs[1].scope, "bar_baz");
     }
 
     // --- Cache integration ---
@@ -743,11 +781,11 @@ mod tests {
     #[test]
     fn cache_hit_produces_same_results_as_cache_miss() {
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("top_level_func", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("top_level_func");
 
         // First search: cache miss (populates cache)
         let results_miss = search(
-            &parsed,
+            &modes,
             &[DefKind::Function],
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -759,7 +797,7 @@ mod tests {
 
         // Second search: should produce same results regardless of cache state
         let results_hit = search(
-            &parsed,
+            &modes,
             &[DefKind::Function],
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -791,9 +829,9 @@ mod tests {
     fn cache_stores_full_definitions() {
         let reg = build_registry();
 
-        let parsed_all = ParsedPattern::parse("MyClass", CaseSensitivity::Sensitive).unwrap();
+        let modes_all = parse_mode("MyClass");
         let results_all = search(
-            &parsed_all,
+            &modes_all,
             DefKind::all(),
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -803,7 +841,7 @@ mod tests {
         .unwrap();
 
         let results_filtered = search(
-            &parsed_all,
+            &modes_all,
             &[DefKind::Class],
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -831,11 +869,11 @@ mod tests {
         // Bug #1 regression test: cache must work when search path is relative.
         // Verify that cache.bin (v4 aggregated format) is written to .peek-cache/.
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("top_level_func", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("top_level_func");
 
         // Run search with relative path (typical CLI usage)
         let results = search(
-            &parsed,
+            &modes,
             &[DefKind::Function],
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -853,122 +891,6 @@ mod tests {
         );
     }
 
-    // --- filter_definitions with scope filter ---
-
-    #[test]
-    fn filter_with_scope_exact_match() {
-        let filter = ScopeFilter::new("MyClass::", "::", false).unwrap();
-        let mut fd = FileDefs {
-            file: PathBuf::from("f.rs"),
-            defs: vec![
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [1, 1],
-                    signature: "fn method".into(),
-                    scope: "MyClass::method".into(),
-                },
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [2, 2],
-                    signature: "fn other".into(),
-                    scope: "OtherClass::method".into(),
-                },
-            ],
-        };
-        let mode = MatchMode::Exact {
-            name: "method".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), Some(&filter));
-        assert_eq!(fd.defs.len(), 1);
-        assert_eq!(fd.defs[0].scope, "MyClass::method");
-    }
-
-    #[test]
-    fn filter_with_scope_wildcard() {
-        let filter = ScopeFilter::new(".*::", "::", false).unwrap();
-        let mut fd = FileDefs {
-            file: PathBuf::from("f.rs"),
-            defs: vec![
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [1, 1],
-                    signature: "fn method".into(),
-                    scope: "MyClass::method".into(),
-                },
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [2, 2],
-                    signature: "fn other".into(),
-                    scope: "method".into(),
-                },
-            ],
-        };
-        let mode = MatchMode::Exact {
-            name: "method".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), Some(&filter));
-        assert_eq!(fd.defs.len(), 1);
-        assert_eq!(fd.defs[0].scope, "MyClass::method");
-    }
-
-    #[test]
-    fn filter_with_scope_dot_separator() {
-        let filter = ScopeFilter::new("MyClass\\.", ".", false).unwrap();
-        let mut fd = FileDefs {
-            file: PathBuf::from("f.py"),
-            defs: vec![
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [1, 1],
-                    signature: "fn method".into(),
-                    scope: "MyClass.method".into(),
-                },
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [2, 2],
-                    signature: "fn method".into(),
-                    scope: "OtherClass.method".into(),
-                },
-            ],
-        };
-        let mode = MatchMode::Exact {
-            name: "method".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), Some(&filter));
-        assert_eq!(fd.defs.len(), 1);
-        assert_eq!(fd.defs[0].scope, "MyClass.method");
-    }
-
-    #[test]
-    fn filter_without_scope_same_behavior() {
-        let mut fd = FileDefs {
-            file: PathBuf::from("f.rs"),
-            defs: vec![
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [1, 1],
-                    signature: "fn method".into(),
-                    scope: "MyClass::method".into(),
-                },
-                DefContent {
-                    kind: DefKind::Function,
-                    lines: [2, 2],
-                    signature: "fn other".into(),
-                    scope: "method".into(),
-                },
-            ],
-        };
-        let mode = MatchMode::Exact {
-            name: "method".to_string(),
-            case_insensitive: false,
-        };
-        filter_file_defs(&mut fd, &mode, DefKind::all(), None);
-        assert_eq!(fd.defs.len(), 2);
-    }
-
     // --- Old cache migration ---
 
     // NOTE: v3 cache migration is tested in cache.rs unit tests with tempdir isolation.
@@ -982,9 +904,9 @@ mod tests {
         let reg = build_registry();
 
         // First search with "..." (list-all mode) populates cache
-        let parsed_all = ParsedPattern::parse("...", CaseSensitivity::Sensitive).unwrap();
+        let modes_all = parse_mode("...");
         let results_all = search(
-            &parsed_all,
+            &modes_all,
             DefKind::all(),
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -995,7 +917,7 @@ mod tests {
 
         // Second search should produce same results regardless of cache state
         let results_hit = search(
-            &parsed_all,
+            &modes_all,
             DefKind::all(),
             &[Path::new("tests/fixtures/python")],
             &[],
@@ -1028,9 +950,9 @@ mod tests {
         assert!(cache_bin.exists());
 
         let reg = build_registry();
-        let parsed = ParsedPattern::parse("nonexistent", CaseSensitivity::Sensitive).unwrap();
+        let modes = parse_mode("nonexistent");
         let _ = search(
-            &parsed,
+            &modes,
             &[DefKind::Function],
             &[tmp.path()],
             &[],

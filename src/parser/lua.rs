@@ -1,6 +1,7 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
-    LanguageParser, MatchMode, build_scope, extract_signature_to_body, line_range, node_text,
+    LanguageParser, MatchMode, build_scope, first_line_of_node, flatten_bytes, line_range,
+    node_text, normalize_signature,
 };
 use tree_sitter::{Node, Parser};
 
@@ -22,6 +23,23 @@ impl LanguageParser for LuaParser {
     impl_init_parser!(tree_sitter_lua::LANGUAGE, "Lua");
 
     impl_extract_with!(collect_definitions, scope: "");
+}
+
+/// Extract function signature using `parameters.end_byte()` as boundary.
+///
+/// tree-sitter-lua places body-leading comments as direct children of
+/// `function_declaration` between `parameters` and `body`. Using
+/// `body.start_byte()` (like the generic `extract_signature_to_body`) includes
+/// these stray comments. Using `parameters.end_byte()` correctly excludes them.
+fn extract_lua_signature(node: Node, source: &str) -> String {
+    let end_byte = node
+        .child_by_field_name("parameters")
+        .map(|p| p.end_byte())
+        .or_else(|| node.child_by_field_name("body").map(|b| b.start_byte()))
+        .unwrap_or_else(|| node.end_byte());
+    let sig = flatten_bytes(node.start_byte(), end_byte, source)
+        .unwrap_or_else(|| first_line_of_node(node, source));
+    normalize_signature(&sig)
 }
 
 fn extract_name(name_node: Node, source: &str) -> Option<(String, String)> {
@@ -65,7 +83,7 @@ fn handle_function(
     let own_scope = build_scope(scope, ".", &full_path);
 
     if kinds.contains(&DefKind::Function) && mode.matches_ident(&final_name) {
-        let signature = extract_signature_to_body(node, source);
+        let signature = extract_lua_signature(node, source);
         let start_row = node.start_position().row + 1;
         let [start, end] = line_range(start_row, node);
 
@@ -120,28 +138,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    // === Meta tests ===
-
-    #[test]
-    fn test_language() {
-        let parser = LuaParser;
-        assert_eq!(parser.language(), "lua");
-    }
-
-    #[test]
-    fn test_extensions() {
-        let parser = LuaParser;
-        assert_eq!(parser.extensions(), &[".lua"]);
-    }
-
-    #[test]
-    fn test_supported_kinds() {
-        let parser = LuaParser;
-        let kinds = parser.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert_eq!(kinds.len(), 1);
-    }
-
     // === Edge case tests ===
 
     #[test]
@@ -180,28 +176,14 @@ local y = function() return 1 end
         assert!(defs.is_empty());
     }
 
-    #[test]
-    fn test_no_matching_name() {
-        let source = r#"
-function hello()
-    print("hello")
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "nonexistent", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    // === Bug: body comments leak into signature ===
-    // BUG: Comments inside a function body (before the first statement) are
-    // included in the extracted signature. Root cause: tree-sitter-lua places
-    // comments that appear after parameters but before block content as direct
-    // children of `function_declaration` (not inside the `body` block). Since
-    // `extract_signature_to_body` extracts from `node.start_byte()` to
-    // `body.start_byte()`, and `body.start_byte()` is after these stray comments,
-    // the signature includes the comment text.
+    // === Signature: body comments excluded ===
+    // tree-sitter-lua places comments between parameters and body as direct
+    // children of function_declaration (not inside the body block).
+    // The Lua-specific signature extractor uses parameters.end_byte() to
+    // avoid including these stray comments.
 
     #[test]
-    fn test_bug_signature_excludes_body_comment() {
+    fn test_signature_excludes_body_comment() {
         let source = r#"
 function greet()
     -- This comment should not appear in signature
@@ -211,18 +193,11 @@ end
 "#;
         let defs = extract_definitions(&LuaParser, "greet", &[DefKind::Function], source);
         assert_eq!(defs.len(), 1);
-        // BUG: signature currently includes the comment
-        assert!(
-            defs[0].signature.contains("--"),
-            "BUG CONFIRMED: signature should not contain comment but does: {:?}",
-            defs[0].signature
-        );
-        // Expected (after fix): signature should be "function greet()"
-        // assert_eq!(defs[0].signature, "function greet()");
+        assert_eq!(defs[0].signature, "function greet()");
     }
 
     #[test]
-    fn test_bug_local_function_signature_excludes_body_comment() {
+    fn test_local_function_signature_excludes_body_comment() {
         let source = r#"
 local function helper()
     -- helper comment
@@ -231,12 +206,7 @@ end
 "#;
         let defs = extract_definitions(&LuaParser, "helper", &[DefKind::Function], source);
         assert_eq!(defs.len(), 1);
-        assert!(
-            defs[0].signature.contains("--"),
-            "BUG CONFIRMED: signature should not contain comment but does: {:?}",
-            defs[0].signature
-        );
-        // Expected (after fix): signature should be "local function helper()"
+        assert_eq!(defs[0].signature, "local function helper()");
     }
 
     #[test]
@@ -249,5 +219,31 @@ end
         let defs = extract_definitions(&LuaParser, "clean_func", &[DefKind::Function], source);
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].signature, "function clean_func()");
+    }
+
+    #[test]
+    fn test_function_with_params_signature_excludes_body_comment() {
+        let source = r#"
+function add(a, b)
+    -- compute sum
+    return a + b
+end
+"#;
+        let defs = extract_definitions(&LuaParser, "add", &[DefKind::Function], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].signature, "function add(a, b)");
+    }
+
+    #[test]
+    fn test_method_signature_excludes_body_comment() {
+        let source = r#"
+function MyClass:greet()
+    -- method body comment
+    return "hello"
+end
+"#;
+        let defs = extract_definitions(&LuaParser, "greet", &[DefKind::Function], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].signature, "function MyClass:greet()");
     }
 }

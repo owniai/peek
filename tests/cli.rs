@@ -44,9 +44,14 @@ fn peek_ellipsis_with_kind_filter() {
 }
 
 #[test]
-fn peek_ellipsis_no_results_for_empty_dir() {
-    // Use a path with no supported source files
-    let output = peek(&["...", "tests/fixtures/"]);
+fn peek_regexp_treats_positional_as_path() {
+    // When -e is provided, positional args become paths (ripgrep-aligned)
+    let output = peek(&[
+        "-e",
+        "simple_func",
+        "tests/fixtures/python/basic_functions.py",
+    ]);
     assert!(output.status.success());
-    let _stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[function/simple_func]"));
 }

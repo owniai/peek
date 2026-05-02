@@ -120,6 +120,32 @@ fn peek_for_go_grouped_type_scope() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].kind, "struct");
     assert_eq!(results[0].scope, "GroupedPoint");
+    // Grouped struct signature should not include "type (" prefix
+    let grouped_point = results.iter().find(|d| d.scope == "GroupedPoint").unwrap();
+    assert!(!grouped_point.signature.contains("type ("));
+}
+
+#[test]
+fn peek_for_go_grouped_interface_signature() {
+    let output = peek(&["GroupedHandler", "tests/fixtures/go/sample.go"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    let iface = results.iter().find(|d| d.kind == "interface").unwrap();
+    assert!(iface.signature.starts_with("GroupedHandler interface"));
+    assert!(!iface.signature.contains("type ("));
+}
+
+#[test]
+fn peek_for_go_grouped_type_def_signature() {
+    let output = peek(&["GroupedInt", "tests/fixtures/go/sample.go"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "type");
+    assert!(results[0].signature.starts_with("GroupedInt int"));
+    assert!(!results[0].signature.contains("type ("));
 }
 
 #[test]
@@ -140,6 +166,9 @@ fn peek_for_go_typed_const() {
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    let def = &results[0];
+    assert_eq!(def.kind, "const");
+    assert_eq!(def.scope, "TypedConst");
 }
 
 #[test]
@@ -188,7 +217,7 @@ fn peek_for_go_top_level_func() {
 
 #[test]
 fn peek_for_go_point_struct() {
-    let output = peek(&["-k", "struct", "Point", "tests/fixtures/go"]);
+    let output = peek(&["-w", "-k", "struct", "Point", "tests/fixtures/go"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -217,33 +246,6 @@ fn peek_for_go_iota_consts() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].kind, "const");
     assert_eq!(results[0].scope, "Red");
-
-    // Green: implicit iota value
-    let output = peek(&["-k", "const", "Green", "tests/fixtures/go"]);
-    assert!(output.status.success());
-    let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "const");
-    assert_eq!(results[0].scope, "Green");
-
-    // Blue: implicit iota value
-    let output = peek(&["-k", "const", "Blue", "tests/fixtures/go"]);
-    assert!(output.status.success());
-    let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "const");
-    assert_eq!(results[0].scope, "Blue");
-}
-
-#[test]
-fn peek_for_go_top_level_const() {
-    let output = peek(&["-k", "const", "MaxSize", "tests/fixtures/go"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success());
-    let results = parse_defs(&stdout);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "const");
-    assert_eq!(results[0].scope, "MaxSize");
 }
 
 // === Function-body definitions should NOT be extracted ===

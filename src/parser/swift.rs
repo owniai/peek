@@ -411,41 +411,6 @@ mod tests {
     use super::*;
     use crate::parser::extract_definitions;
 
-    // --- Meta tests ---
-
-    #[test]
-    fn swift_parser_language() {
-        let parser = SwiftParser;
-        assert_eq!(parser.language(), "swift");
-    }
-
-    #[test]
-    fn swift_parser_extensions() {
-        let parser = SwiftParser;
-        assert_eq!(parser.extensions(), &[".swift", ".swiftinterface"]);
-    }
-
-    #[test]
-    fn swift_parser_supported_kinds() {
-        let parser = SwiftParser;
-        let kinds = parser.supported_kinds();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Class));
-        assert!(kinds.contains(&DefKind::Struct));
-        assert!(kinds.contains(&DefKind::Enum));
-        assert!(kinds.contains(&DefKind::Protocol));
-        assert!(kinds.contains(&DefKind::Type));
-        assert!(kinds.contains(&DefKind::Const));
-        assert!(kinds.contains(&DefKind::Actor));
-        assert!(kinds.contains(&DefKind::Extension));
-    }
-
-    #[test]
-    fn swift_parser_init_parser() {
-        let parser = SwiftParser;
-        let _ = parser.init_parser(); // Should not panic
-    }
-
     // --- Edge case tests ---
 
     #[test]

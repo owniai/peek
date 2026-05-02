@@ -107,7 +107,7 @@ fn peek_for_ts_const_scope() {
 
 #[test]
 fn peek_for_ts_exported_class_signature() {
-    let output = peek(&["-k", "class", "ExportedClass", "tests/fixtures/ts"]);
+    let output = peek(&["-w", "-k", "class", "ExportedClass", "tests/fixtures/ts"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -188,4 +188,61 @@ fn peek_for_ts_exported_const_scope() {
         "exported const signature should include 'export', got: {}",
         results[0].signature
     );
+}
+
+// === Namespace scope tests ===
+
+#[test]
+fn peek_for_ts_namespace_function_scope() {
+    let output = peek(&["-k", "function", "nsHelper", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].scope, "MyApp.nsHelper");
+}
+
+#[test]
+fn peek_for_ts_namespace_class_scope() {
+    let output = peek(&["-k", "class", "NsClass", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "class");
+    assert_eq!(results[0].scope, "MyApp.NsClass");
+}
+
+#[test]
+fn peek_for_ts_interface_method_scope() {
+    let output = peek(&["-k", "function", "getValue", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].scope, "GenericInterface.getValue");
+}
+
+#[test]
+fn peek_for_ts_abstract_method_scope() {
+    let output = peek(&["-k", "function", "doWork", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].scope, "AbstractBase.doWork");
+}
+
+#[test]
+fn peek_for_ts_module_function_scope() {
+    let output = peek(&["-k", "function", "modFunc", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].scope, "ModSpace.modFunc");
 }
