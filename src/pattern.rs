@@ -269,13 +269,6 @@ pub struct ParsedPattern {
 
 impl ParsedPattern {
     pub fn parse(input: &str, case: CaseSensitivity, word: bool) -> Result<Self> {
-        if input == "..." {
-            return Ok(ParsedPattern {
-                mode: MatchMode::All,
-                original: input.to_string(),
-            });
-        }
-
         let case_insensitive = match case {
             CaseSensitivity::Sensitive => false,
             CaseSensitivity::Insensitive => true,
@@ -625,27 +618,6 @@ mod tests {
         let mode = MatchMode::from_user_input("Foo", is_smart_case("Foo"), false).unwrap();
         assert!(mode.matches_ident("Foo"));
         assert!(!mode.matches_ident("foo"));
-    }
-
-    // ===== Ellipsis (list-all) =====
-
-    #[test]
-    fn parse_ellipsis_returns_all_mode() {
-        let parsed = ParsedPattern::parse("...", CaseSensitivity::Sensitive, false).unwrap();
-        assert!(matches!(parsed.mode(), MatchMode::All));
-        assert_eq!(parsed.display_name(), "...");
-    }
-
-    #[test]
-    fn parse_ellipsis_not_triggered_by_two_dots() {
-        let parsed = ParsedPattern::parse("..", CaseSensitivity::Sensitive, false).unwrap();
-        assert!(matches!(parsed.mode(), MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn parse_ellipsis_not_triggered_by_four_dots() {
-        let parsed = ParsedPattern::parse("....", CaseSensitivity::Sensitive, false).unwrap();
-        assert!(matches!(parsed.mode(), MatchMode::Regex { .. }));
     }
 
     // ===== ParsedPattern integration =====

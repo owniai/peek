@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::fmt::Write;
 use std::path::Path;
 
-/// Maximum signature length for display. Truncated with "..." suffix if exceeded.
+/// Maximum signature length for display. Truncated with " [truncated]" suffix if exceeded.
 const MAX_SIGNATURE_LEN: usize = 256;
 
 #[derive(Copy, Clone)]
@@ -19,7 +19,13 @@ pub enum OutputMode {
     },
 }
 
-pub fn format_output(_name: &str, _path: &str, result: &SearchResult, mode: OutputMode) -> String {
+pub fn format_output(
+    _name: &str,
+    _path: &str,
+    result: &SearchResult,
+    mode: OutputMode,
+    path_separator: Option<char>,
+) -> String {
     let mut out = String::new();
     let cwd = std::env::current_dir().unwrap_or_default();
 
@@ -27,7 +33,7 @@ pub fn format_output(_name: &str, _path: &str, result: &SearchResult, mode: Outp
         match mode {
             OutputMode::FilesOnly => {
                 for fd in &result.definitions {
-                    let _ = writeln!(out, "{}", relativize_path(&fd.file, &cwd));
+                    let _ = writeln!(out, "{}", relativize_path(&fd.file, &cwd, path_separator));
                 }
             }
             OutputMode::Count { no_filename } => {
@@ -35,8 +41,12 @@ pub fn format_output(_name: &str, _path: &str, result: &SearchResult, mode: Outp
                     if no_filename {
                         let _ = writeln!(out, "{}", fd.defs.len());
                     } else {
-                        let _ =
-                            writeln!(out, "{}:{}", relativize_path(&fd.file, &cwd), fd.defs.len());
+                        let _ = writeln!(
+                            out,
+                            "{}:{}",
+                            relativize_path(&fd.file, &cwd, path_separator),
+                            fd.defs.len()
+                        );
                     }
                 }
             }
@@ -45,7 +55,7 @@ pub fn format_output(_name: &str, _path: &str, result: &SearchResult, mode: Outp
                 no_filename,
             } => {
                 for fd in &result.definitions {
-                    let file = relativize_path(&fd.file, &cwd);
+                    let file = relativize_path(&fd.file, &cwd, path_separator);
                     for def in &fd.defs {
                         write_def(&mut out, &file, def, no_signature, no_filename);
                         out.push('\n');
@@ -86,7 +96,11 @@ enum JsonMessage {
     },
 }
 
-pub fn format_json_output(result: &SearchResult, mode: OutputMode) -> String {
+pub fn format_json_output(
+    result: &SearchResult,
+    mode: OutputMode,
+    path_separator: Option<char>,
+) -> String {
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut out = String::new();
     let mut total_matched = 0usize;
@@ -95,7 +109,7 @@ pub fn format_json_output(result: &SearchResult, mode: OutputMode) -> String {
     };
 
     for fd in &result.definitions {
-        let path = relativize_path(&fd.file, &cwd).into_owned();
+        let path = relativize_path(&fd.file, &cwd, path_separator).into_owned();
 
         out.push_str(&serialize(&JsonMessage::Begin { path: path.clone() }));
         out.push('\n');
@@ -103,13 +117,19 @@ pub fn format_json_output(result: &SearchResult, mode: OutputMode) -> String {
         match mode {
             OutputMode::Normal { .. } => {
                 for def in &fd.defs {
+                    let sig = truncate_str(&def.signature, MAX_SIGNATURE_LEN);
+                    let signature = if def.signature.len() > MAX_SIGNATURE_LEN {
+                        format!("{sig} [truncated]")
+                    } else {
+                        sig.to_string()
+                    };
                     out.push_str(&serialize(&JsonMessage::Match {
                         path: path.clone(),
                         line_start: def.lines[0],
                         line_end: def.lines[1],
                         kind: def.kind.display_tag().to_string(),
                         scope: def.scope.clone(),
-                        signature: def.signature.clone(),
+                        signature,
                     }));
                     out.push('\n');
                 }
@@ -137,10 +157,37 @@ pub fn format_json_output(result: &SearchResult, mode: OutputMode) -> String {
 
 /// Convert an absolute path to a relative path by stripping the base directory prefix.
 /// Falls back to the original path if stripping fails (e.g., different drive on Windows).
-fn relativize_path<'a>(path: &'a Path, base: &Path) -> Cow<'a, str> {
-    match path.strip_prefix(base) {
+fn relativize_path<'a>(path: &'a Path, base: &Path, separator: Option<char>) -> Cow<'a, str> {
+    let lossy = match path.strip_prefix(base) {
         Ok(relative) => relative.to_string_lossy(),
         Err(_) => path.to_string_lossy(),
+    };
+    match separator {
+        Some(sep) => {
+            let needs_replace = if cfg!(windows) {
+                lossy.contains('/') || lossy.contains('\\')
+            } else {
+                lossy.contains('/')
+            };
+            if !needs_replace {
+                return lossy;
+            }
+            let mut replaced = lossy.into_owned();
+            let sep_byte = sep as u8;
+            // Safety: sep is a char from user input validated as single-byte,
+            // and '/'/'\\' are always single-byte ASCII, so byte-level replacement is safe.
+            // Safety: replacing ASCII bytes (/ and \) with a single-byte ASCII char
+            // preserves UTF-8 validity since both source and target are single-byte.
+            unsafe {
+                for b in replaced.as_bytes_mut() {
+                    if *b == b'/' || (cfg!(windows) && *b == b'\\') {
+                        *b = sep_byte;
+                    }
+                }
+            }
+            Cow::Owned(replaced)
+        }
+        None => lossy,
     }
 }
 
@@ -172,7 +219,7 @@ fn write_def(
     } else {
         let sig = truncate_str(&def.signature, MAX_SIGNATURE_LEN);
         let truncation = if def.signature.len() > MAX_SIGNATURE_LEN {
-            "..."
+            " [truncated]"
         } else {
             ""
         };
@@ -215,11 +262,11 @@ pub fn write_errors<W: std::io::Write>(wtr: &mut W, result: &SearchResult, suppr
     }
     let cwd = std::env::current_dir().unwrap_or_default();
     for err in &result.read_errors {
-        let path = relativize_path(&err.path, &cwd);
+        let path = relativize_path(&err.path, &cwd, None);
         let _ = writeln!(wtr, "peek: {}: {}", path, err.message);
     }
     for err in &result.parse_failures {
-        let path = relativize_path(&err.path, &cwd);
+        let path = relativize_path(&err.path, &cwd, None);
         let _ = writeln!(wtr, "peek: {}: {}", path, err.message);
     }
 }
@@ -291,6 +338,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(
@@ -322,6 +370,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         assert!(!output.contains("Found"));
         assert!(!output.contains("definition"));
@@ -342,6 +391,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         assert!(
             output.is_empty(),
@@ -376,6 +426,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         // Errors should NOT appear in stdout output
         assert!(!output.contains("failed to parse"));
@@ -402,6 +453,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         assert!(!output.contains("failed to parse"));
         assert!(!output.contains("failed to read"));
@@ -434,6 +486,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         // Errors should NOT appear in stdout output
         assert!(!output.contains("failed to read"));
@@ -466,6 +519,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         assert_eq!(
             output,
@@ -497,6 +551,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         assert_eq!(
             output,
@@ -528,6 +583,7 @@ mod tests {
                 no_signature: true,
                 no_filename: false,
             },
+            None,
         );
         assert_eq!(output, "src/abc.py:45-62 [function/process]");
     }
@@ -553,6 +609,7 @@ mod tests {
                 no_signature: true,
                 no_filename: false,
             },
+            None,
         );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines[0], "foo.py:1-5 [class/Foo]");
@@ -583,7 +640,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("foo", ".", &result, OutputMode::FilesOnly);
+        let output = format_output("foo", ".", &result, OutputMode::FilesOnly, None);
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], "src/models.py");
@@ -603,7 +660,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("Foo", ".", &result, OutputMode::FilesOnly);
+        let output = format_output("Foo", ".", &result, OutputMode::FilesOnly, None);
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0], "foo.py");
@@ -616,7 +673,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("X", ".", &result, OutputMode::FilesOnly);
+        let output = format_output("X", ".", &result, OutputMode::FilesOnly, None);
         assert!(output.is_empty());
     }
 
@@ -652,6 +709,7 @@ mod tests {
             ".",
             &result,
             OutputMode::Count { no_filename: false },
+            None,
         );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 2);
@@ -666,7 +724,13 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("X", ".", &result, OutputMode::Count { no_filename: false });
+        let output = format_output(
+            "X",
+            ".",
+            &result,
+            OutputMode::Count { no_filename: false },
+            None,
+        );
         assert!(output.is_empty());
     }
 
@@ -696,9 +760,10 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         assert!(output.contains("fn foo()"));
-        assert!(!output.contains("..."));
+        assert!(!output.contains(" [truncated]"));
     }
 
     #[test]
@@ -725,12 +790,13 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
-        assert!(output.ends_with("..."));
+        assert!(output.ends_with(" [truncated]"));
         // Output should be shorter than the original 300-char signature
         let sig_part = output.split(']').next_back().unwrap().trim();
         assert!(sig_part.len() < 300);
-        assert!(sig_part.len() <= MAX_SIGNATURE_LEN + 3); // +3 for "..."
+        assert!(sig_part.len() <= MAX_SIGNATURE_LEN + 12); // +12 for " [truncated]"
     }
 
     #[test]
@@ -757,8 +823,9 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
-        assert!(!output.contains("..."));
+        assert!(!output.contains(" [truncated]"));
     }
 
     #[test]
@@ -785,8 +852,9 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
-        assert!(output.ends_with("..."));
+        assert!(output.ends_with(" [truncated]"));
     }
 
     // --- relativize_path ---
@@ -795,7 +863,7 @@ mod tests {
     fn relativize_strips_cwd_prefix_from_absolute_path() {
         let cwd = std::env::current_dir().unwrap();
         let abs_path = cwd.join("src").join("main.rs");
-        let result = relativize_path(&abs_path, &cwd);
+        let result = relativize_path(&abs_path, &cwd, None);
         assert_eq!(
             result,
             PathBuf::from_iter(["src", "main.rs"]).to_string_lossy()
@@ -811,7 +879,7 @@ mod tests {
             .unwrap_or(Path::new("/"))
             .join("other_project")
             .join("file.rs");
-        let result = relativize_path(&outside, &cwd);
+        let result = relativize_path(&outside, &cwd, None);
         assert_eq!(result, outside.to_string_lossy());
     }
 
@@ -819,8 +887,44 @@ mod tests {
     fn relativize_preserves_relative_path() {
         let cwd = std::env::current_dir().unwrap();
         let rel = PathBuf::from("src/main.rs");
-        let result = relativize_path(&rel, &cwd);
+        let result = relativize_path(&rel, &cwd, None);
         assert_eq!(result, rel.to_string_lossy());
+    }
+
+    #[test]
+    fn relativize_with_separator_replaces_backslashes() {
+        let cwd = std::env::current_dir().unwrap();
+        let abs_path = cwd.join("src").join("main.rs");
+        let result = relativize_path(&abs_path, &cwd, Some('/'));
+        assert!(
+            !result.contains('\\'),
+            "expected no backslashes, got: {}",
+            result
+        );
+        assert_eq!(result, "src/main.rs");
+    }
+
+    #[test]
+    fn relativize_with_separator_replaces_forward_slashes() {
+        let cwd = std::env::current_dir().unwrap();
+        let abs_path = cwd.join("src").join("main.rs");
+        let result = relativize_path(&abs_path, &cwd, Some('\\'));
+        assert!(
+            !result.contains('/'),
+            "expected no forward slashes, got: {}",
+            result
+        );
+        assert_eq!(result, "src\\main.rs");
+    }
+
+    #[test]
+    fn relativize_without_separator_preserves_os_native() {
+        let cwd = std::env::current_dir().unwrap();
+        let abs_path = cwd.join("src").join("main.rs");
+        let result = relativize_path(&abs_path, &cwd, None);
+        let binding = PathBuf::from_iter(["src", "main.rs"]);
+        let expected = binding.to_string_lossy();
+        assert_eq!(result, expected);
     }
 
     // --- format_output with absolute paths ---
@@ -845,6 +949,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         let expected_path = PathBuf::from_iter(["src", "models.py"]);
         let expected_file = expected_path.to_string_lossy();
@@ -866,7 +971,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("MyClass", ".", &result, OutputMode::FilesOnly);
+        let output = format_output("MyClass", ".", &result, OutputMode::FilesOnly, None);
         let expected_path = PathBuf::from_iter(["src", "models.py"]);
         assert_eq!(output, expected_path.to_string_lossy());
     }
@@ -891,6 +996,7 @@ mod tests {
             ".",
             &result,
             OutputMode::Count { no_filename: false },
+            None,
         );
         let expected_path = PathBuf::from_iter(["src", "models.py"]);
         assert_eq!(output, format!("{}:2", expected_path.to_string_lossy()));
@@ -917,6 +1023,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         let messages = parse_json_lines(&output);
 
@@ -957,6 +1064,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         let messages = parse_json_lines(&output);
 
@@ -994,7 +1102,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_json_output(&result, OutputMode::FilesOnly);
+        let output = format_json_output(&result, OutputMode::FilesOnly, None);
         let messages = parse_json_lines(&output);
 
         // begin + end per file + summary (no match messages)
@@ -1025,7 +1133,7 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_json_output(&result, OutputMode::Count { no_filename: false });
+        let output = format_json_output(&result, OutputMode::Count { no_filename: false }, None);
         let messages = parse_json_lines(&output);
 
         // begin + end per file + summary
@@ -1050,6 +1158,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         let messages = parse_json_lines(&output);
 
@@ -1081,6 +1190,7 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         let messages = parse_json_lines(&output);
 
@@ -1106,6 +1216,7 @@ mod tests {
                 no_signature: true,
                 no_filename: false,
             },
+            None,
         );
         let messages = parse_json_lines(&output);
 
@@ -1133,11 +1244,44 @@ mod tests {
                 no_signature: false,
                 no_filename: false,
             },
+            None,
         );
         for line in output.lines() {
             let _: serde_json::Value = serde_json::from_str(line)
                 .unwrap_or_else(|e| panic!("invalid JSON: {line}\nerror: {e}"));
         }
+    }
+
+    #[test]
+    fn json_long_signature_truncated() {
+        let long_sig = "x".repeat(300);
+        let result = SearchResult {
+            definitions: vec![make_fd(
+                "f.rs",
+                vec![DefContent {
+                    kind: DefKind::Function,
+                    lines: [1, 1],
+                    signature: long_sig,
+                    scope: "foo".into(),
+                }],
+            )],
+            read_errors: vec![],
+            parse_failures: vec![],
+        };
+        let output = format_json_output(
+            &result,
+            OutputMode::Normal {
+                no_signature: false,
+                no_filename: false,
+            },
+            None,
+        );
+        let messages = parse_json_lines(&output);
+        let match_msg = messages.iter().find(|m| m["type"] == "match").unwrap();
+        let sig = match_msg["data"]["signature"].as_str().unwrap();
+        assert!(sig.ends_with(" [truncated]"));
+        assert!(sig.len() < 300);
+        assert!(sig.len() <= MAX_SIGNATURE_LEN + 12); // +12 for " [truncated]"
     }
 
     // --- write_errors (stderr output) ---
@@ -1221,6 +1365,7 @@ mod tests {
                 no_signature: false,
                 no_filename: true,
             },
+            None,
         );
         assert_eq!(output, "45-62 [function/process] def process() -> bool");
         assert!(!output.contains("src/abc.py"));
@@ -1250,6 +1395,7 @@ mod tests {
                 no_signature: true,
                 no_filename: true,
             },
+            None,
         );
         assert_eq!(output, "45-62 [function/process]");
     }
@@ -1275,6 +1421,7 @@ mod tests {
                 no_signature: false,
                 no_filename: true,
             },
+            None,
         );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines[0], "1-5 [class/Foo] class Foo");
@@ -1294,7 +1441,13 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("foo", ".", &result, OutputMode::Count { no_filename: true });
+        let output = format_output(
+            "foo",
+            ".",
+            &result,
+            OutputMode::Count { no_filename: true },
+            None,
+        );
         assert_eq!(output, "2");
     }
 
@@ -1323,7 +1476,13 @@ mod tests {
             read_errors: vec![],
             parse_failures: vec![],
         };
-        let output = format_output("foo", ".", &result, OutputMode::Count { no_filename: true });
+        let output = format_output(
+            "foo",
+            ".",
+            &result,
+            OutputMode::Count { no_filename: true },
+            None,
+        );
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines[0], "2");
         assert_eq!(lines[1], "1");

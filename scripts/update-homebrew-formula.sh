@@ -12,4 +12,4 @@ ruby -r erb -e '
   version, arm64_mac, intel_mac, arm64_linux, intel_linux = ARGV
   template = File.read("scripts/peek-formula.rb.erb")
   puts ERB.new(template, trim_mode: "-").result(binding)
-' "$VERSION" "$ARM64_MAC" "$INTEL_MAC" "$ARM64_LINUX" "$INTEL_LINUX" > Formula/peek.rb
+' "$VERSION" "$ARM64_MAC" "$INTEL_MAC" "$ARM64_LINUX" "$INTEL_LINUX" > Formula/peek-code.rb

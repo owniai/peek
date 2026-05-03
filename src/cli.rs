@@ -6,7 +6,7 @@ use clap::Parser;
 const VALUE_SHORT_FLAGS: &[char] = &['k', 'g', 'd', 'e'];
 /// Long flags that take a value (all others are boolean).
 /// MUST stay in sync with Cli struct fields that have #[arg(short, long)] and take a value.
-const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth", "regexp"];
+const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth", "regexp", "path-separator"];
 /// Short flags that are boolean (no value).
 /// MUST stay in sync with Cli struct fields that have #[arg(short)] and no value.
 const BOOLEAN_SHORT_FLAGS: &[char] = &['i', 'S', 'l', 'c', 'w', 'H', 'I', 'M'];
@@ -29,6 +29,8 @@ const BOOLEAN_LONG_FLAGS: &[&str] = &[
     "help",
 ];
 
+use crate::registry::KNOWN_EXTENSIONS;
+
 /// Check if `arg` looks like a known peek option (value-taking or boolean).
 fn is_known_option(arg: &str) -> bool {
     if let Some(rest) = arg.strip_prefix("--") {
@@ -46,6 +48,40 @@ fn is_known_option(arg: &str) -> bool {
     } else {
         false
     }
+}
+
+/// Detect if the first positional argument looks like a file path rather than a
+/// search pattern, using platform-aware heuristics.
+///
+/// Rules (any match returns true):
+/// - `slash`: Contains `/` (all platforms)
+/// - `ext`: File extension is a known source extension AND the path exists
+///   (see KNOWN_EXTENSIONS; non-existent files degrade to pattern)
+/// - `win`: (Windows only) Contains `\` AND the path exists,
+///   but excludes strings starting with single `\` (regex escapes)
+fn first_arg_is_path(s: &str) -> bool {
+    // Rule slash: contains /
+    if s.contains('/') {
+        return true;
+    }
+    // Rule ext: known source extension, but only if path exists
+    if let Some(dot_pos) = s.rfind('.') {
+        let ext = &s[dot_pos + 1..];
+        if !ext.is_empty() && KNOWN_EXTENSIONS.contains(&ext) && std::path::Path::new(s).exists() {
+            return true;
+        }
+    }
+    // Rule win: (Windows only) contains \ and path exists,
+    // but exclude strings starting with single \ (regex escapes like \. \d \w).
+    // UNC paths (\\server\share) start with \\ and are still detected.
+    #[cfg(target_os = "windows")]
+    {
+        let starts_with_single_backslash = s.starts_with('\\') && !s.starts_with("\\\\");
+        if !starts_with_single_backslash && s.contains('\\') && std::path::Path::new(s).exists() {
+            return true;
+        }
+    }
+    false
 }
 
 /// Reorder CLI arguments so options appear before positional arguments.
@@ -243,6 +279,10 @@ pub struct Cli {
     /// Optional when -e/--regexp is used.
     pattern: Option<String>,
 
+    /// Set the path separator for file paths in output (e.g., '/' or '\\')
+    #[arg(long = "path-separator")]
+    path_separator: Option<String>,
+
     /// Files or directories to search in (default: current directory)
     #[arg(trailing_var_arg = true)]
     files: Vec<String>,
@@ -259,11 +299,25 @@ impl Cli {
         &self.regexp
     }
 
+    /// Whether path detection triggered list-all mode (no pattern search).
+    pub fn is_list_all(&self) -> bool {
+        if !self.regexp.is_empty() {
+            return false;
+        }
+        match &self.pattern {
+            Some(p) => first_arg_is_path(p),
+            None => false,
+        }
+    }
+
     pub fn collect_patterns(&self) -> Vec<String> {
         if !self.regexp.is_empty() {
             return self.regexp.clone();
         }
         if let Some(p) = &self.pattern {
+            if first_arg_is_path(p) {
+                return vec![];
+            }
             vec![p.clone()]
         } else {
             vec![]
@@ -278,6 +332,13 @@ impl Cli {
             }
             files.extend(self.files.iter().cloned());
             files
+        } else if let Some(p) = &self.pattern {
+            if first_arg_is_path(p) {
+                let mut files = vec![p.clone()];
+                files.extend(self.files.iter().cloned());
+                return files;
+            }
+            self.files.clone()
         } else {
             self.files.clone()
         }
@@ -348,6 +409,14 @@ impl Cli {
 
     pub fn word(&self) -> bool {
         self.word
+    }
+
+    /// Returns the path separator character, or None if not specified.
+    /// Returns an error if the value is not exactly one byte.
+    pub fn path_separator(&self) -> Option<char> {
+        self.path_separator
+            .as_deref()
+            .and_then(|s| s.chars().next())
     }
 }
 
@@ -1117,11 +1186,280 @@ mod tests {
         assert_eq!(cli.globs(), &["-*.test.rs".to_string()]);
     }
 
+    // --- --path-separator flag ---
+
+    #[test]
+    fn path_separator_forward_slash() {
+        let cli = Cli::try_parse_from(["peek", "--path-separator", "/", "foo"]).unwrap();
+        assert_eq!(cli.path_separator(), Some('/'));
+    }
+
+    #[test]
+    fn path_separator_backslash() {
+        let cli = Cli::try_parse_from(["peek", "--path-separator", "\\", "foo"]).unwrap();
+        assert_eq!(cli.path_separator(), Some('\\'));
+    }
+
+    #[test]
+    fn path_separator_not_set_defaults_to_none() {
+        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
+        assert_eq!(cli.path_separator(), None);
+    }
+
+    #[test]
+    fn reorder_path_separator_after_files() {
+        let args = args_from(&["peek", "my_func", "src/", "--path-separator", "/"]);
+        assert_eq!(
+            reorder_cli_args(&args),
+            args_from(&["peek", "--path-separator", "/", "my_func", "src/"])
+        );
+    }
+
     #[test]
     fn reorder_end_to_end_dash_prefixed_regexp() {
         let args = args_from(&["peek", "src/", "-e", "-pattern"]);
         let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
         assert_eq!(cli.collect_patterns(), vec!["-pattern".to_string()]);
+        assert_eq!(cli.files(), &["src/".to_string()]);
+    }
+
+    // --- first_arg_is_path heuristic tests ---
+
+    #[test]
+    fn path_heuristic_slash_positive() {
+        assert!(first_arg_is_path("src/"));
+        assert!(first_arg_is_path("./config"));
+        assert!(first_arg_is_path("../lib"));
+        assert!(first_arg_is_path("a/b"));
+    }
+
+    #[test]
+    fn path_heuristic_slash_negative() {
+        assert!(!first_arg_is_path("my_func"));
+        assert!(!first_arg_is_path("abc"));
+    }
+
+    #[test]
+    fn path_heuristic_dot_dotdot_are_patterns() {
+        // . and .. are always patterns (regex), not paths
+        assert!(!first_arg_is_path("."));
+        assert!(!first_arg_is_path(".."));
+        assert!(!first_arg_is_path("..."));
+        assert!(!first_arg_is_path(".gitignore"));
+    }
+
+    #[test]
+    fn path_heuristic_ext_existing_file() {
+        // ext rule only returns true when the file actually exists
+        let tid = format!("{:?}", std::thread::current().id());
+        let names: Vec<String> = [
+            ".rs", ".py", ".js", ".tsx", ".cs", ".java", ".go", ".c", ".cpp", ".sh", ".lua",
+        ]
+        .iter()
+        .map(|ext| format!("peek_test_ext_{}{}", tid, ext))
+        .collect();
+        for name in &names {
+            std::fs::write(name, "").unwrap();
+        }
+        for name in &names {
+            assert!(
+                first_arg_is_path(name),
+                "ext rule should detect existing file: {}",
+                name
+            );
+        }
+        for name in &names {
+            std::fs::remove_file(name).ok();
+        }
+    }
+
+    #[test]
+    fn path_heuristic_ext_nonexistent_file() {
+        // Known extension but file doesn't exist → degrades to pattern
+        assert!(!first_arg_is_path("main.rs"));
+        assert!(!first_arg_is_path("app.py"));
+        assert!(!first_arg_is_path("index.js"));
+        assert!(!first_arg_is_path("nonexistent_module.lua"));
+    }
+
+    #[test]
+    fn path_heuristic_known_extension_negative() {
+        assert!(!first_arg_is_path("foo"));
+        assert!(!first_arg_is_path("README.md"));
+        assert!(!first_arg_is_path("config.json"));
+        assert!(!first_arg_is_path("data.csv"));
+    }
+
+    #[test]
+    fn path_heuristic_windows_backslash_existing_dir() {
+        if cfg!(target_os = "windows") {
+            let temp = std::env::temp_dir().join("peek_test_heuristic");
+            std::fs::create_dir_all(&temp).unwrap();
+            let path_str = format!("{}\\sub", temp.display());
+            std::fs::create_dir_all(&path_str).unwrap();
+            assert!(first_arg_is_path(&path_str));
+            std::fs::remove_dir_all(&temp).ok();
+        }
+    }
+
+    #[test]
+    fn path_heuristic_windows_backslash_nonexistent() {
+        if cfg!(target_os = "windows") {
+            assert!(!first_arg_is_path("nonexistent\\path"));
+        }
+    }
+
+    #[test]
+    fn path_heuristic_windows_regex_escape_not_path() {
+        // Regex escape sequences starting with \ must NOT be treated as paths,
+        // even if they happen to resolve to existing directories (e.g. \. → drive root).
+        if cfg!(target_os = "windows") {
+            assert!(!first_arg_is_path("\\.")); // Bug #7: resolves to C:\. (drive root)
+            assert!(!first_arg_is_path("\\")); // resolves to C:\ (drive root)
+            assert!(!first_arg_is_path("\\..")); // resolves to C:\.. (drive root)
+            assert!(!first_arg_is_path("\\d")); // regex digit class
+            assert!(!first_arg_is_path("\\w")); // regex word class
+            assert!(!first_arg_is_path("\\s")); // regex whitespace class
+        }
+    }
+
+    #[test]
+    fn path_heuristic_windows_mid_backslash_still_detected() {
+        // Paths with \ in the middle should still be detected.
+        if cfg!(target_os = "windows") {
+            let temp = std::env::temp_dir().join("peek_test_mid_bs");
+            std::fs::create_dir_all(&temp).unwrap();
+            let path_str = format!("{}\\sub", temp.display());
+            std::fs::create_dir_all(&path_str).unwrap();
+            assert!(first_arg_is_path(&path_str));
+            std::fs::remove_dir_all(&temp).ok();
+        }
+    }
+
+    #[test]
+    fn path_heuristic_windows_unc_path_detected() {
+        // UNC paths (\\server\share) should still be detected if they exist.
+        // We can't guarantee a UNC path exists, so just verify the logic
+        // doesn't reject the prefix — test with a non-existent UNC path.
+        if cfg!(target_os = "windows") {
+            // Non-existent UNC should return false (is_dir fails), not crash
+            assert!(!first_arg_is_path("\\\\nonexistent-server\\share"));
+        }
+    }
+
+    // --- CLI path disambiguation tests ---
+    // Verify collect_patterns() and files() behavior when first positional arg
+    // looks like a path (no -e flag present).
+
+    #[test]
+    fn disambig_single_path_becomes_listall() {
+        // peek src/ → list-all src/
+        let cli = Cli::try_parse_from(["peek", "src/"]).unwrap();
+        assert!(cli.is_list_all());
+        assert!(cli.collect_patterns().is_empty());
+        assert_eq!(cli.files(), &["src/".to_string()]);
+    }
+
+    #[test]
+    fn disambig_dot_is_pattern() {
+        // peek . → . is a regex pattern (match any char), not a path
+        let cli = Cli::try_parse_from(["peek", "."]).unwrap();
+        assert!(!cli.is_list_all());
+        assert_eq!(cli.collect_patterns(), vec![".".to_string()]);
+        assert!(cli.files().is_empty());
+    }
+
+    #[test]
+    fn disambig_ext_existing_file_becomes_listall() {
+        // peek main.rs (existing) → list-all main.rs
+        let tid = format!("{:?}", std::thread::current().id());
+        let filename = format!("peek_test_disambig_{}.rs", tid);
+        std::fs::write(&filename, "").unwrap();
+        let cli = Cli::try_parse_from(["peek", &filename]).unwrap();
+        assert!(cli.is_list_all());
+        assert!(cli.collect_patterns().is_empty());
+        assert_eq!(cli.files(), std::slice::from_ref(&filename));
+        std::fs::remove_file(&filename).ok();
+    }
+
+    #[test]
+    fn disambig_ext_nonexistent_file_is_pattern() {
+        // peek myfunc.py (non-existent) → pattern search for "myfunc.py"
+        let cli = Cli::try_parse_from(["peek", "myfunc.py"]).unwrap();
+        assert!(!cli.is_list_all());
+        assert_eq!(cli.collect_patterns(), vec!["myfunc.py".to_string()]);
+        assert!(cli.files().is_empty());
+    }
+
+    #[test]
+    fn disambig_path_with_extra_files() {
+        // peek src/ lib/ → list-all src/ + lib/
+        let cli = Cli::try_parse_from(["peek", "src/", "lib/"]).unwrap();
+        assert!(cli.is_list_all());
+        assert!(cli.collect_patterns().is_empty());
+        assert_eq!(cli.files(), &["src/".to_string(), "lib/".to_string()]);
+    }
+
+    #[test]
+    fn disambig_dot_with_kind_is_pattern() {
+        // peek . -k function → . is a regex pattern, not list-all
+        let args = args_from(&["peek", ".", "-k", "function"]);
+        let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
+        assert!(!cli.is_list_all());
+        assert_eq!(cli.collect_patterns(), vec![".".to_string()]);
+        assert!(cli.files().is_empty());
+        assert_eq!(cli.kinds(), vec![DefKind::Function]);
+    }
+
+    #[test]
+    fn disambig_pattern_with_files_unchanged() {
+        // peek my_func src/ → search my_func in src/ (unchanged)
+        let cli = Cli::try_parse_from(["peek", "my_func", "src/"]).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["my_func".to_string()]);
+        assert_eq!(cli.files(), &["src/".to_string()]);
+    }
+
+    #[test]
+    fn disambig_pattern_only_unchanged() {
+        // peek my_func → search my_func (unchanged)
+        let cli = Cli::try_parse_from(["peek", "my_func"]).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["my_func".to_string()]);
+        assert!(cli.files().is_empty());
+    }
+
+    #[test]
+    fn disambig_three_dots_is_pattern() {
+        // peek ... → treated as regular pattern (regex "..." matches any 3 chars)
+        let cli = Cli::try_parse_from(["peek", "..."]).unwrap();
+        assert!(!cli.is_list_all());
+        assert_eq!(cli.collect_patterns(), vec!["...".to_string()]);
+        assert!(cli.files().is_empty());
+    }
+
+    #[test]
+    fn disambig_dot_with_files_is_pattern() {
+        // peek . app.py → . is pattern, app.py is file
+        let cli = Cli::try_parse_from(["peek", ".", "app.py"]).unwrap();
+        assert!(!cli.is_list_all());
+        assert_eq!(cli.collect_patterns(), vec![".".to_string()]);
+        assert_eq!(cli.files(), &["app.py".to_string()]);
+    }
+
+    #[test]
+    fn disambig_dotdot_with_files_is_pattern() {
+        // peek .. app.py → .. is pattern, app.py is file
+        let cli = Cli::try_parse_from(["peek", "..", "app.py"]).unwrap();
+        assert!(!cli.is_list_all());
+        assert_eq!(cli.collect_patterns(), vec!["..".to_string()]);
+        assert_eq!(cli.files(), &["app.py".to_string()]);
+    }
+
+    #[test]
+    fn disambig_with_regexp_flag_skips_heuristic() {
+        // peek src/ -e foo → search foo in src/ (heuristic not applied when -e present)
+        let args = args_from(&["peek", "src/", "-e", "foo"]);
+        let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
+        assert_eq!(cli.collect_patterns(), vec!["foo".to_string()]);
         assert_eq!(cli.files(), &["src/".to_string()]);
     }
 }

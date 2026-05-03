@@ -71,7 +71,7 @@ pub fn search(
         builder.max_depth(Some(depth));
     }
 
-    // Use first path's absolute version as project root for CacheManager and OverrideBuilder.
+    // Use first path's absolute version as WalkBuilder root for OverrideBuilder.
     let root = abs_paths[0].clone();
 
     // Extension filter: always applied via types(), AND'd with overrides and ignore rules
@@ -99,12 +99,18 @@ pub fn search(
         builder.overrides(overrides.build().expect("Failed to build overrides"));
     }
 
-    // Phase 1: Cache preparation — load existing cache.bin if present.
-    let project_root = cache::find_project_root(&root).unwrap_or_else(|| root.clone());
-    let cache_path = project_root.join(".peek-cache").join("cache.bin");
-    let cache_index = CacheIndex::load(&cache_path);
-    if cache_index.is_none() && cache_path.exists() {
-        let _ = std::fs::remove_file(&cache_path);
+    // Phase 1: Cache preparation — find project root from CWD (not search path),
+    // load existing cache.bin if present. No project root → no caching.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let project_root = cache::find_project_root(&cwd);
+    let cache_path = project_root
+        .as_ref()
+        .map(|pr| pr.join(".peek-cache").join("cache.bin"));
+    let cache_index: Option<CacheIndex> = cache_path.as_ref().and_then(|cp| CacheIndex::load(cp));
+    if cache_index.is_none() {
+        if let Some(cp) = cache_path.as_ref().filter(|p| p.exists()) {
+            let _ = std::fs::remove_file(cp);
+        }
     }
 
     // Concurrent result collectors
@@ -165,8 +171,11 @@ pub fn search(
                 // Own the path once (avoid repeated to_path_buf allocations)
                 let path_buf = path.to_path_buf();
 
-                // Compute path_hash for cache lookup/update
-                let rel = path.strip_prefix(project_root).ok();
+                // Compute path_hash for cache lookup/update.
+                // Files outside project_root get rel=None, ph=None → uncached path.
+                let rel = project_root
+                    .as_ref()
+                    .and_then(|pr| path.strip_prefix(pr).ok());
                 let ph = rel.map(cache::path_hash);
 
                 // --- Cached path ---
@@ -316,40 +325,43 @@ pub fn search(
     // Phase 3: Serial cache update — build buffer, release mmap, write atomically.
     // Two-step write: build buffer while mmap is alive (reads old data),
     // then drop mmap before rename (Windows locks mmap'd files).
+    // Only write when project_root exists (no cache outside a project).
     let has_non_hit = cache_events
         .iter()
         .any(|(_, e)| !matches!(e, CacheEvent::Hit(_)));
     if has_non_hit {
-        let updates: HashMap<u64, CacheEvent> = cache_events.into_iter().collect();
-        match cache::build_cache_buffer(cache_index.as_ref(), &updates) {
-            Ok(buf) => {
-                drop(cache_index);
-                if cache::write_cache_atomic(&cache_path, &buf).is_ok() {
-                    let old_v3_dir = cache_path
-                        .parent()
-                        .map(|p| p.join("files"))
-                        .filter(|p| p.exists());
-                    if let Some(v3_dir) = old_v3_dir {
-                        if let Err(e) = std::fs::remove_dir_all(&v3_dir) {
-                            eprintln!(
-                                "peek: warning: failed to clean up legacy cache directory '{}': {}",
-                                v3_dir.display(),
-                                e
-                            );
+        if let Some(ref cache_path) = cache_path {
+            let updates: HashMap<u64, CacheEvent> = cache_events.into_iter().collect();
+            match cache::build_cache_buffer(cache_index.as_ref(), &updates) {
+                Ok(buf) => {
+                    drop(cache_index);
+                    if cache::write_cache_atomic(cache_path, &buf).is_ok() {
+                        let old_v3_dir = cache_path
+                            .parent()
+                            .map(|p| p.join("files"))
+                            .filter(|p| p.exists());
+                        if let Some(v3_dir) = old_v3_dir {
+                            if let Err(e) = std::fs::remove_dir_all(&v3_dir) {
+                                eprintln!(
+                                    "peek: warning: failed to clean up legacy cache directory '{}': {}",
+                                    v3_dir.display(),
+                                    e
+                                );
+                            }
                         }
+                    } else {
+                        eprintln!(
+                            "peek: warning: failed to write cache '{}'",
+                            cache_path.display()
+                        );
                     }
-                } else {
+                }
+                Err(_) => {
                     eprintln!(
-                        "peek: warning: failed to write cache '{}'",
+                        "peek: warning: failed to build cache '{}'",
                         cache_path.display()
                     );
                 }
-            }
-            Err(_) => {
-                eprintln!(
-                    "peek: warning: failed to build cache '{}'",
-                    cache_path.display()
-                );
             }
         }
     }
@@ -903,8 +915,8 @@ mod tests {
     fn cache_hit_with_all_mode_produces_correct_results() {
         let reg = build_registry();
 
-        // First search with "..." (list-all mode) populates cache
-        let modes_all = parse_mode("...");
+        // First search with MatchMode::All (list-all mode) populates cache
+        let modes_all = vec![MatchMode::All];
         let results_all = search(
             &modes_all,
             DefKind::all(),
@@ -934,36 +946,38 @@ mod tests {
         );
     }
 
+    // NOTE: corrupt cache deletion is tested in cache.rs with tempdir isolation.
+    // Pipeline-level testing of this behavior requires CWD manipulation which
+    // breaks parallel test execution — the cache-level test is sufficient.
+
     #[test]
-    fn corrupt_cache_file_deleted_on_load_failure() {
+    fn absolute_file_path_does_not_create_cache_under_file_dir() {
+        // Bug #6 regression: searching an absolute file path outside project root
+        // must not attempt to create .peek-cache inside the file's parent directory.
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
-
-        let cache_dir = tmp.path().join(".peek-cache");
-        std::fs::create_dir_all(&cache_dir).unwrap();
-        let cache_bin = cache_dir.join("cache.bin");
-
-        // Write a cache with wrong version — load will return None
-        let mut corrupt = vec![0u8; 16];
-        corrupt[0..4].copy_from_slice(&99u32.to_le_bytes());
-        std::fs::write(&cache_bin, &corrupt).unwrap();
-        assert!(cache_bin.exists());
+        let py_file = tmp.path().join("target_file.py");
+        std::fs::write(&py_file, "def my_abs_func(): pass\n").unwrap();
 
         let reg = build_registry();
-        let modes = parse_mode("nonexistent");
-        let _ = search(
+        let modes = parse_mode("my_abs_func");
+        let results = search(
             &modes,
             &[DefKind::Function],
-            &[tmp.path()],
+            &[&py_file],
             &[],
             &SearchOptions::default(),
             &reg,
         )
         .unwrap();
 
+        // Should find the function
+        assert!(!results.definitions.is_empty());
+
+        // Should NOT create .peek-cache in the tempdir (file is outside project root)
+        let cache_in_tmp = tmp.path().join(".peek-cache");
         assert!(
-            !cache_bin.exists(),
-            "corrupt cache file should be deleted when load fails"
+            !cache_in_tmp.exists(),
+            ".peek-cache should not be created outside project root"
         );
     }
 }

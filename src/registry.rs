@@ -20,6 +20,76 @@ use crate::parser::rust::RustParser;
 use crate::parser::swift::SwiftParser;
 use crate::parser::typescript::TsParser;
 
+/// Source file extensions supported by peek (without leading dot).
+/// Single source of truth — kept in sync with parser `extensions()` methods via
+/// the `known_extensions_match_registry` test below.
+pub const KNOWN_EXTENSIONS: &[&str] = &[
+    "py",
+    "pyw",
+    "pyi",
+    "gyp",
+    "gypi",
+    "wsgi",
+    "go",
+    "rs",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
+    "ts",
+    "tsx",
+    "mts",
+    "cts",
+    "java",
+    "cs",
+    "csx",
+    "cake",
+    "linq",
+    "php",
+    "phtml",
+    "phar",
+    "ctp",
+    "c",
+    "cpp",
+    "cxx",
+    "cc",
+    "hpp",
+    "hxx",
+    "hh",
+    "h",
+    "ixx",
+    "cppm",
+    "inl",
+    "tcc",
+    "tpp",
+    "ipp",
+    "inc",
+    "ino",
+    "txx",
+    "kt",
+    "kts",
+    "swift",
+    "swiftinterface",
+    "rb",
+    "rake",
+    "gemspec",
+    "ru",
+    "rbi",
+    "podspec",
+    "jbuilder",
+    "thor",
+    "rabl",
+    "builder",
+    "god",
+    "dart",
+    "sh",
+    "bash",
+    "bats",
+    "lua",
+    "nse",
+    "rockspec",
+];
+
 pub struct ParserRegistry {
     parsers: HashMap<&'static str, Box<dyn LanguageParser>>,
     ext_map: HashMap<&'static str, &'static str>,
@@ -168,5 +238,29 @@ mod tests {
     fn empty_registry_returns_none() {
         let reg = ParserRegistry::new();
         assert!(reg.get_by_ext(&PathBuf::from("file.py")).is_none());
+    }
+
+    #[test]
+    fn known_extensions_match_registry() {
+        let reg = ParserRegistry::default_registry();
+        let registry_exts: Vec<&str> = reg
+            .parsers
+            .values()
+            .flat_map(|p| p.extensions())
+            .map(|e| e.strip_prefix('.').unwrap_or(e))
+            .collect();
+
+        for ext in KNOWN_EXTENSIONS {
+            assert!(
+                registry_exts.contains(ext),
+                "KNOWN_EXTENSIONS has '{ext}' but no parser supports it"
+            );
+        }
+        for ext in &registry_exts {
+            assert!(
+                KNOWN_EXTENSIONS.contains(ext),
+                "Parser supports '{ext}' but it's not in KNOWN_EXTENSIONS"
+            );
+        }
     }
 }

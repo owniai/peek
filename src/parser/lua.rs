@@ -13,7 +13,7 @@ impl LanguageParser for LuaParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".lua"]
+        &[".lua", ".nse", ".rockspec"]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

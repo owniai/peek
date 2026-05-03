@@ -13,7 +13,7 @@ impl LanguageParser for CSharpParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".cs"]
+        &[".cs", ".csx", ".cake", ".linq"]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

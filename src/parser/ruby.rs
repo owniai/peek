@@ -13,7 +13,19 @@ impl LanguageParser for RubyParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".rb", ".rake", ".gemspec", ".ru"]
+        &[
+            ".rb",
+            ".rake",
+            ".gemspec",
+            ".ru",
+            ".rbi",
+            ".podspec",
+            ".jbuilder",
+            ".thor",
+            ".rabl",
+            ".builder",
+            ".god",
+        ]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

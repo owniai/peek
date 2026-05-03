@@ -13,7 +13,7 @@ Run `peek --version` first. If peek is not found, install it. If installed, upda
 
 | Priority | Method | Command |
 |----------|--------|---------|
-| 1 | Homebrew (macOS/Linux) | `brew install owniai/tap/peek` |
+| 1 | Homebrew (macOS/Linux) | `brew install owniai/tap/peek-code` |
 | 2 | cargo-binstall | `cargo binstall peek-code -y` |
 | 3 | cargo install | `cargo install peek-code --locked` |
 | 4 | cargo install from git | `cargo install --git https://github.com/owniai/peek --locked` |
@@ -22,7 +22,7 @@ Run `peek --version` first. If peek is not found, install it. If installed, upda
 
 | Method | Command |
 |--------|---------|
-| Homebrew | `brew upgrade peek` |
+| Homebrew | `brew upgrade peek-code` |
 | cargo-binstall | `cargo binstall peek-code -y` |
 | cargo install | `cargo install peek-code --locked` |
 
@@ -30,7 +30,7 @@ Run `peek --version` first. If peek is not found, install it. If installed, upda
 
 1. Run `peek --version`.
    - **Not found** → detect platform, try install methods in order (skip unavailable tools like brew on Windows).
-   - **Found** → detect which package manager was used (check `brew list peek`, `cargo install --list`), then run the corresponding update command. The cargo crate name is `peek-code`.
+   - **Found** → detect which package manager was used (check `brew list peek-code`, `cargo install --list`), then run the corresponding update command. The cargo crate name is `peek-code`.
 2. Run `peek --version` again to confirm the final version.
 
 ## Troubleshooting

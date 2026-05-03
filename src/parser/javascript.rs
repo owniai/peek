@@ -13,7 +13,7 @@ impl LanguageParser for JsParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".js", ".jsx"]
+        &[".js", ".jsx", ".mjs", ".cjs"]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

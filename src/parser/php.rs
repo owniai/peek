@@ -13,7 +13,7 @@ impl LanguageParser for PhpParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".php", ".phtml", ".phar"]
+        &[".php", ".phtml", ".phar", ".ctp"]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

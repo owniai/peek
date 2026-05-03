@@ -13,7 +13,7 @@ impl LanguageParser for PythonParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".py", ".pyw"]
+        &[".py", ".pyw", ".pyi", ".gyp", ".gypi", ".wsgi"]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
@@ -52,6 +52,44 @@ fn extract_type_alias_name(node: Node, source: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Check if an `assignment` node is a `TypeAlias` annotated type alias
+/// (e.g. `HeaderValue: TypeAlias = str | list[str]`).
+/// Returns the name if the `type:` annotation is `TypeAlias` (or `typing.TypeAlias`).
+fn try_extract_typealias_name(node: Node, source: &str) -> Option<String> {
+    if node.kind() != "assignment" {
+        return None;
+    }
+    let type_node = node.child_by_field_name("type")?;
+    if !is_typealias_annotation(&type_node, source) {
+        return None;
+    }
+    let left = node.child_by_field_name("left")?;
+    if left.kind() == "identifier" {
+        return Some(node_text(left, source));
+    }
+    None
+}
+
+fn is_typealias_annotation(type_node: &Node, source: &str) -> bool {
+    let mut cursor = type_node.walk();
+    for child in type_node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" if node_text_ref(child, source) == "TypeAlias" => {
+                return true;
+            }
+            "attribute" => {
+                if let Some(attr) = child.child_by_field_name("attribute") {
+                    if node_text_ref(attr, source) == "TypeAlias" {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn collect_definitions<'a>(
@@ -172,6 +210,30 @@ fn try_add_definition<'a>(
         return;
     }
 
+    // TypeAlias annotated assignment: `X: TypeAlias = str | list[str]`
+    if kind == "assignment" {
+        if let Some(name) = try_extract_typealias_name(node, source) {
+            let own_scope = build_scope(scope, ".", &name);
+            if kinds.contains(&DefKind::Type) && mode.matches_ident(&name) {
+                let raw = flatten_bytes(node.start_byte(), node.end_byte(), source)
+                    .unwrap_or_else(|| first_line_of_node(node, source));
+                let signature = clean_signature(&raw);
+                let [start, end] = line_range(node.start_position().row + 1, node);
+                results.push(DefContent {
+                    kind: DefKind::Type,
+                    lines: [start, end],
+                    signature,
+                    scope: own_scope.clone(),
+                });
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                collect_definitions(child, source, mode, kinds, results, &own_scope);
+            }
+            return;
+        }
+    }
+
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
@@ -241,6 +303,47 @@ mod tests {
     fn type_alias_kind_filter() {
         let src = "type Point = tuple[float, float]";
         let results = extract_definitions(&PythonParser, "Point", &[DefKind::Class], src);
+        assert!(results.is_empty());
+    }
+
+    // --- TypeAlias annotated form ---
+
+    #[test]
+    fn extract_typealias_annotated() {
+        let src = "HeaderValue: TypeAlias = str | list[str]";
+        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Type], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Type);
+        assert_eq!(results[0].scope, "HeaderValue");
+        assert!(results[0].signature.contains("HeaderValue: TypeAlias"));
+    }
+
+    #[test]
+    fn extract_typealias_annotated_in_class() {
+        let src = "class Config:\n    HeaderValue: TypeAlias = str | list[str]";
+        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Type], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].scope, "Config.HeaderValue");
+    }
+
+    #[test]
+    fn typealias_annotated_kind_filter() {
+        let src = "HeaderValue: TypeAlias = str | list[str]";
+        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Class], src);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn plain_annotation_not_detected_as_type() {
+        let src = "name: str = \"hello\"";
+        let results = extract_definitions(&PythonParser, "name", &[DefKind::Type], src);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn plain_assignment_not_detected_as_type() {
+        let src = "MAX_SIZE = 100";
+        let results = extract_definitions(&PythonParser, "MAX_SIZE", &[DefKind::Type], src);
         assert!(results.is_empty());
     }
 

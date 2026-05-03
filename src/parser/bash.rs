@@ -13,7 +13,7 @@ impl LanguageParser for BashParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".sh", ".bash"]
+        &[".sh", ".bash", ".bats"]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

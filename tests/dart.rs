@@ -246,7 +246,7 @@ fn peek_for_dart_class_method_end_line() {
 #[test]
 fn peek_for_dart_single_line_functions_unchanged() {
     // Single-line and abstract definitions should have start == end
-    let output = peek(&["-k", "function", "...", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "function", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);

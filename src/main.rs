@@ -70,7 +70,8 @@ fn try_main() -> anyhow::Result<ExitCode> {
 
     // Collect patterns from positional arg and -e/--regexp flags
     let patterns = cli.collect_patterns();
-    if patterns.is_empty() {
+    let list_all = cli.is_list_all();
+    if patterns.is_empty() && !list_all {
         anyhow::bail!("error: no pattern specified (use positional argument or -e/--regexp)");
     }
 
@@ -100,18 +101,23 @@ fn try_main() -> anyhow::Result<ExitCode> {
         CaseSensitivity::Sensitive
     };
 
-    // Parse each pattern independently
-    let parsed_patterns: Vec<crate::pattern::ParsedPattern> = patterns
-        .iter()
-        .map(|p| crate::pattern::ParsedPattern::parse(p, case, cli.word()))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let modes: Vec<crate::parser::MatchMode> =
-        parsed_patterns.iter().map(|p| p.mode().clone()).collect();
-    let display_name: String = parsed_patterns
-        .iter()
-        .map(|p| p.display_name())
-        .collect::<Vec<_>>()
-        .join("|");
+    // Parse each pattern independently, or use list-all mode
+    let (modes, display_name) = if list_all {
+        (vec![crate::parser::MatchMode::All], "*".to_string())
+    } else {
+        let parsed_patterns: Vec<crate::pattern::ParsedPattern> = patterns
+            .iter()
+            .map(|p| crate::pattern::ParsedPattern::parse(p, case, cli.word()))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let ms: Vec<crate::parser::MatchMode> =
+            parsed_patterns.iter().map(|p| p.mode().clone()).collect();
+        let dn: String = parsed_patterns
+            .iter()
+            .map(|p| p.display_name())
+            .collect::<Vec<_>>()
+            .join("|");
+        (ms, dn)
+    };
 
     // Determine search paths (default to current directory)
     let search_paths: Vec<&Path> = if files.is_empty() {
@@ -188,10 +194,18 @@ fn try_main() -> anyhow::Result<ExitCode> {
         files.join(", ")
     };
 
+    let path_separator = cli.path_separator();
+
     let output = if cli.json() {
-        output::format_json_output(&merged_result, output_mode)
+        output::format_json_output(&merged_result, output_mode, path_separator)
     } else {
-        output::format_output(&display_name, &display_path, &merged_result, output_mode)
+        output::format_output(
+            &display_name,
+            &display_path,
+            &merged_result,
+            output_mode,
+            path_separator,
+        )
     };
     if !output.is_empty() {
         use std::io::Write;

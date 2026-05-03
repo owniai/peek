@@ -22,21 +22,16 @@ fn peek_invalid_path_exits_2() {
 }
 
 #[test]
-fn peek_ellipsis_lists_all_definitions() {
-    let output = peek(&["...", "tests/fixtures/python/basic_functions.py"]);
+fn peek_path_lists_all_definitions() {
+    let output = peek(&["tests/fixtures/python/basic_functions.py"]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("[function/"));
 }
 
 #[test]
-fn peek_ellipsis_with_kind_filter() {
-    let output = peek(&[
-        "-k",
-        "function",
-        "...",
-        "tests/fixtures/python/basic_functions.py",
-    ]);
+fn peek_path_with_kind_filter() {
+    let output = peek(&["-k", "function", "tests/fixtures/python/basic_functions.py"]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("[function/"));

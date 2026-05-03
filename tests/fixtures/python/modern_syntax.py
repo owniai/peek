@@ -36,3 +36,13 @@ class Container(Generic[T]):
 class Point(TypedDict):
     x: float
     y: float
+
+
+# 7. TypeAlias annotated type alias
+# peek type HeaderValue → py/type, scope=HeaderValue
+HeaderValue: TypeAlias = str | list[str] | tuple[str, ...]
+
+# 8. TypeAlias in class scope
+# peek type Config → py/type, scope=Settings.Config
+class Settings:
+    Config: TypeAlias = dict[str, object]

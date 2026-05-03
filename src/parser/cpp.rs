@@ -14,7 +14,10 @@ impl LanguageParser for CppParser {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".hh", ".h"]
+        &[
+            ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".hh", ".h", ".ixx", ".cppm", ".inl", ".tcc",
+            ".tpp", ".ipp", ".inc", ".ino", ".txx",
+        ]
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {

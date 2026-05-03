@@ -785,3 +785,43 @@ fn test_python_multiline_type_alias_signature() {
 }
 
 // === sample.py additional scope/kind tests ===
+
+// === TypeAlias annotated form ===
+
+#[test]
+fn test_python_typealias_annotated_top_level() {
+    let path = "tests/fixtures/python/modern_syntax.py";
+
+    // HeaderValue: TypeAlias = str | list[str] | tuple[str, ...]
+    let output = peek(&["-k", "type", "HeaderValue", path]);
+    assert!(output.status.success());
+    let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "type");
+    assert_eq!(results[0].scope, "HeaderValue");
+}
+
+#[test]
+fn test_python_typealias_annotated_in_class() {
+    let path = "tests/fixtures/python/modern_syntax.py";
+
+    // Settings.Config: TypeAlias = dict[str, object]
+    let output = peek(&["-k", "type", "Config", path]);
+    assert!(output.status.success());
+    let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].scope, "Settings.Config");
+}
+
+#[test]
+fn test_python_typealias_annotated_no_false_positive() {
+    let path = "tests/fixtures/python/modern_syntax.py";
+
+    // Regular annotated assignments (name: str) should NOT match -k type
+    let output = peek(&["-k", "type", "name", path]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "plain annotated assignment should not match -k type"
+    );
+}
