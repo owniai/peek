@@ -98,3 +98,13 @@ void withLocalDefs() {
     print("local");
   }
 }
+
+// Class with various fields
+class Product {
+  int id;
+  String label;
+  static int instanceCount = 0;
+  final double price;
+
+  Product(this.id, this.label, this.price);
+}

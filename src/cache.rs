@@ -9,7 +9,7 @@ use crate::model::{DefContent, DefKind};
 // Binary format constants
 // ---------------------------------------------------------------------------
 
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 const HEADER_SIZE: usize = 8; // version(4) + entry_count(4)
 const INDEX_ENTRY_SIZE: usize = 32; // path_hash(8) + mtime(8) + size(8) + offset(4) + len(4)
 
@@ -590,8 +590,8 @@ mod tests {
     }
 
     #[test]
-    fn version_is_4() {
-        assert_eq!(VERSION, 4);
+    fn version_is_5() {
+        assert_eq!(VERSION, 5);
     }
 
     #[test]

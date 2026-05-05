@@ -6,12 +6,12 @@ use common::{parse_defs, peek};
 
 #[test]
 fn peek_for_ts_method_scope() {
-    let output = peek(&["-k", "function", "regularMethod", "tests/fixtures/ts"]);
+    let output = peek(&["-k", "method", "regularMethod", "tests/fixtures/ts"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "MethodClass.regularMethod");
 }
 
@@ -72,12 +72,12 @@ fn peek_for_ts_interface_scope() {
 
 #[test]
 fn peek_for_ts_type_alias_scope() {
-    let output = peek(&["-k", "type", "SimpleType", "tests/fixtures/ts"]);
+    let output = peek(&["-k", "alias", "SimpleType", "tests/fixtures/ts"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "type");
+    assert_eq!(results[0].kind, "alias");
     assert_eq!(results[0].scope, "SimpleType");
 }
 
@@ -143,18 +143,18 @@ fn peek_for_ts_generic_func() {
 
 #[test]
 fn peek_for_ts_abstract_class_method_scope() {
-    let output = peek(&["-k", "function", "concreteMethod", "tests/fixtures/ts"]);
+    let output = peek(&["-k", "method", "concreteMethod", "tests/fixtures/ts"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "AbstractBase.concreteMethod");
 }
 
 #[test]
 fn peek_for_ts_nested_type_alias_not_extracted() {
-    let output = peek(&["-k", "type", "LocalType", "tests/fixtures/ts"]);
+    let output = peek(&["-k", "alias", "LocalType", "tests/fixtures/ts"]);
     // Function-body definitions should NOT be extracted
     assert_eq!(
         output.status.code(),
@@ -216,23 +216,23 @@ fn peek_for_ts_namespace_class_scope() {
 
 #[test]
 fn peek_for_ts_interface_method_scope() {
-    let output = peek(&["-k", "function", "getValue", "tests/fixtures/ts"]);
+    let output = peek(&["-k", "method", "getValue", "tests/fixtures/ts"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "GenericInterface.getValue");
 }
 
 #[test]
 fn peek_for_ts_abstract_method_scope() {
-    let output = peek(&["-k", "function", "doWork", "tests/fixtures/ts"]);
+    let output = peek(&["-k", "method", "doWork", "tests/fixtures/ts"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "AbstractBase.doWork");
 }
 
@@ -245,4 +245,121 @@ fn peek_for_ts_module_function_scope() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].kind, "function");
     assert_eq!(results[0].scope, "ModSpace.modFunc");
+}
+
+// === Field tests ===
+
+#[test]
+fn peek_for_ts_class_field() {
+    let output = peek(&["-k", "field", "publicId", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "FieldClass.publicId" && r.kind == "field"),
+        "expected field FieldClass.publicId, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_ts_readonly_field() {
+    let output = peek(&["-k", "field", "createdAt", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "FieldClass.createdAt" && r.kind == "field"),
+        "expected field FieldClass.createdAt, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_ts_generic_class_field() {
+    // GenericClass has: value: T;
+    let output = peek(&["-k", "field", "value", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "GenericClass.value" && r.kind == "field"),
+        "expected field GenericClass.value, got: {results:?}"
+    );
+}
+
+// === Property tests (interface property_signature) ===
+
+#[test]
+fn peek_for_ts_interface_property() {
+    let output = peek(&["-k", "property", "label", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "PropertyInterface.label" && r.kind == "property"),
+        "expected property PropertyInterface.label, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_ts_interface_optional_property() {
+    let output = peek(&["-k", "property", "optional", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "PropertyInterface.optional" && r.kind == "property"),
+        "expected property PropertyInterface.optional, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_ts_value_category_includes_field_property() {
+    let output = peek(&["-k", "value", "publicId", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results.iter().any(|r| r.scope == "FieldClass.publicId"),
+        "expected publicId in value category, got: {results:?}"
+    );
+}
+
+// === Namespace tests ===
+
+#[test]
+fn peek_for_ts_namespace_kind_internal_module() {
+    let output = peek(&["-k", "namespace", "-w", "MyApp", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "MyApp" && r.kind == "namespace"),
+        "expected namespace MyApp, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_ts_namespace_kind_module() {
+    let output = peek(&["-k", "namespace", "-w", "ModSpace", "tests/fixtures/ts"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "ModSpace" && r.kind == "namespace"),
+        "expected namespace ModSpace, got: {results:?}"
+    );
 }

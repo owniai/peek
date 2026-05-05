@@ -79,6 +79,9 @@ using Processor = void(*)(int);
 // Const in namespace
 const int TIMEOUT = 30;
 
+// Static variable in namespace
+static int counter = 0;
+
 // Nested class inside class
 class Container {
 public:
@@ -101,3 +104,9 @@ const int BUFFER_SIZE = 4096;
 
 } // namespace Detail
 } // namespace App
+
+// === Static variables at file scope ===
+
+static int file_count = 0;
+
+static char *file_name;

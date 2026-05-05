@@ -30,8 +30,8 @@ fn is_regex_meta(c: char) -> bool {
 
 fn compile_regex(pattern: &str, case_insensitive: bool, word: bool) -> Result<Regex> {
     let wrapped = match (case_insensitive, word) {
-        (true, true) => format!(r"(?i)\b(?:{})\b", pattern),
-        (false, true) => format!(r"\b(?:{})\b", pattern),
+        (true, true) => format!(r"(?i)\b{{start-half}}(?:{})\b{{end-half}}", pattern),
+        (false, true) => format!(r"\b{{start-half}}(?:{})\b{{end-half}}", pattern),
         (true, false) => format!("(?i)(?:{})", pattern),
         (false, false) => format!("(?:{})", pattern),
     };
@@ -688,5 +688,26 @@ mod tests {
         let parsed = ParsedPattern::parse("foo", CaseSensitivity::Insensitive, true).unwrap();
         assert!(parsed.mode().matches_ident("FOO"));
         assert!(!parsed.mode().matches_ident("foobar"));
+    }
+
+    // ===== Word boundary with non-word prefix (align with ripgrep half-boundary) =====
+
+    #[test]
+    fn word_matches_dollar_prefix_toplevel() {
+        let mode = MatchMode::from_user_input("\\$ZodString", false, true).unwrap();
+        assert!(mode.matches_ident("$ZodString"));
+    }
+
+    #[test]
+    fn word_matches_dollar_prefix_in_scope() {
+        let mode = MatchMode::from_user_input("\\$ZodString", false, true).unwrap();
+        assert!(mode.matches_ident("MyClass.$ZodString"));
+        assert!(mode.matches_ident("MyClass::$ZodString"));
+    }
+
+    #[test]
+    fn word_no_match_dollar_prefix_after_word_char() {
+        let mode = MatchMode::from_user_input("\\$ZodString", false, true).unwrap();
+        assert!(!mode.matches_ident("X$ZodString"));
     }
 }

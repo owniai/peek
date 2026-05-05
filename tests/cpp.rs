@@ -71,40 +71,40 @@ fn peek_for_cpp_namespace_const_scope() {
 
 #[test]
 fn peek_for_cpp_namespace_type_scope() {
-    let output = peek(&["-k", "type", "Processor", "tests/fixtures/cpp"]);
+    let output = peek(&["-k", "alias", "Processor", "tests/fixtures/cpp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "Core::Processor" && r.kind == "type")
+            .any(|r| r.scope == "Core::Processor" && r.kind == "alias")
     );
 }
 
 #[test]
 fn peek_for_cpp_method_in_class_scope() {
-    let output = peek(&["-k", "function", "execute", "tests/fixtures/cpp"]);
+    let output = peek(&["-k", "method", "execute", "tests/fixtures/cpp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "Core::Service::execute" && r.kind == "function")
+            .any(|r| r.scope == "Core::Service::execute" && r.kind == "method")
     );
 }
 
 #[test]
 fn peek_for_cpp_nested_class_scope() {
-    let output = peek(&["-k", "function", "validate", "tests/fixtures/cpp"]);
+    let output = peek(&["-k", "method", "validate", "tests/fixtures/cpp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "Core::Container::Item::validate" && r.kind == "function")
+            .any(|r| r.scope == "Core::Container::Item::validate" && r.kind == "method")
     );
 }
 
@@ -149,7 +149,7 @@ fn peek_for_finds_cpp_enum_class() {
 
 #[test]
 fn peek_for_finds_cpp_using_alias() {
-    let output = peek(&["-k", "type", "Callback", "tests/fixtures/cpp"]);
+    let output = peek(&["-k", "alias", "Callback", "tests/fixtures/cpp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -186,14 +186,14 @@ fn peek_for_cpp_top_level_struct_scope() {
 
 #[test]
 fn peek_for_cpp_top_level_typedef_scope() {
-    let output = peek(&["-k", "type", "StatusCode", "tests/fixtures/cpp"]);
+    let output = peek(&["-k", "alias", "StatusCode", "tests/fixtures/cpp"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "StatusCode" && r.kind == "type")
+            .any(|r| r.scope == "StatusCode" && r.kind == "alias")
     );
 }
 
@@ -251,3 +251,140 @@ fn peek_for_cpp_top_level_enum_scope() {
 }
 
 // NOTE: No macro test — neither comprehensive.cpp nor out_of_class_method.cpp contains #define directives.
+
+// === Field tests ===
+
+#[test]
+fn peek_for_cpp_struct_field() {
+    let output = peek(&["-k", "field", "-w", "x", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "Point::x")
+    );
+}
+
+#[test]
+fn peek_for_cpp_class_field() {
+    // Config struct in Core namespace has field timeout
+    let output = peek(&["-k", "field", "timeout", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "Core::Config::timeout")
+    );
+}
+
+#[test]
+fn peek_for_cpp_field_kind_excludes_struct() {
+    let output = peek(&["-k", "struct", "-w", "x", "tests/fixtures/cpp"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "field name should not match -k struct"
+    );
+}
+
+// === Static tests ===
+
+#[test]
+fn peek_for_cpp_file_scope_static() {
+    let output = peek(&["-k", "static", "-w", "file_count", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "static" && r.scope == "file_count")
+    );
+}
+
+#[test]
+fn peek_for_cpp_namespace_static() {
+    let output = peek(&["-k", "static", "-w", "counter", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "static" && r.scope == "Core::counter")
+    );
+}
+
+#[test]
+fn peek_for_cpp_static_const_is_const_not_static() {
+    // VERSION is static const int -- should be Const, not Static
+    let output = peek(&["-k", "static", "-w", "TIMEOUT", "tests/fixtures/cpp"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "static const should be Const, not Static"
+    );
+}
+
+#[test]
+fn peek_for_cpp_static_pointer_var() {
+    let output = peek(&["-k", "static", "-w", "file_name", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "static" && r.scope == "file_name")
+    );
+}
+
+// === Value category expansion ===
+
+#[test]
+fn peek_for_cpp_value_category_includes_field_and_static() {
+    let output = peek(&["-k", "value", "-w", "file_count", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|r| r.kind == "static"));
+}
+
+// === Namespace tests ===
+
+#[test]
+fn peek_for_cpp_namespace_kind_core() {
+    let output = peek(&["-k", "namespace", "-w", "Core", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "Core" && r.kind == "namespace"),
+        "expected namespace Core, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_cpp_namespace_kind_nested() {
+    let output = peek(&["-k", "namespace", "-w", "App::Detail", "tests/fixtures/cpp"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "App::Detail" && r.kind == "namespace"),
+        "expected namespace App::Detail, got: {results:?}"
+    );
+}

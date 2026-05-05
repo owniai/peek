@@ -1,7 +1,7 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
-    LanguageParser, MatchMode, build_scope, build_scope_from_node, first_child_by_kind,
-    first_line_of_node, flatten_bytes, line_range, node_text_ref,
+    LanguageParser, MatchMode, build_scope, build_scope_from_node, classify_method_definition,
+    first_child_by_kind, first_line_of_node, flatten_bytes, line_range, node_text_ref,
 };
 use tree_sitter::{Node, Parser};
 
@@ -17,7 +17,15 @@ impl LanguageParser for JsParser {
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
-        &[DefKind::Function, DefKind::Class, DefKind::Const]
+        &[
+            DefKind::Function,
+            DefKind::Method,
+            DefKind::Constructor,
+            DefKind::Getter,
+            DefKind::Setter,
+            DefKind::Class,
+            DefKind::Const,
+        ]
     }
 
     impl_init_parser!(tree_sitter_javascript::LANGUAGE, "JS");
@@ -69,13 +77,14 @@ fn collect_definitions<'a>(
             return;
         }
         "method_definition" => {
+            let def_kind = classify_method_definition(node, source);
             handle_definition(
                 node,
                 source,
                 mode,
                 kinds,
                 results,
-                DefKind::Function,
+                def_kind,
                 "statement_block",
                 scope,
             );
@@ -424,9 +433,9 @@ mod tests {
     #[test]
     fn object_literal_method_scope() {
         let src = "const config = { init() { return 1; } };";
-        let results = extract_definitions(&JsParser, "init", &[DefKind::Function], src);
+        let results = extract_definitions(&JsParser, "init", &[DefKind::Method], src);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
+        assert_eq!(results[0].kind, DefKind::Method);
         assert_eq!(results[0].scope, "config.init");
     }
 
@@ -443,11 +452,11 @@ mod tests {
     #[test]
     fn object_literal_multiple_methods() {
         let src = "const obj = { init() {}, destroy() {} };";
-        let init_results = extract_definitions(&JsParser, "init", &[DefKind::Function], src);
+        let init_results = extract_definitions(&JsParser, "init", &[DefKind::Method], src);
         assert_eq!(init_results.len(), 1);
         assert_eq!(init_results[0].scope, "obj.init");
 
-        let destroy_results = extract_definitions(&JsParser, "destroy", &[DefKind::Function], src);
+        let destroy_results = extract_definitions(&JsParser, "destroy", &[DefKind::Method], src);
         assert_eq!(destroy_results.len(), 1);
         assert_eq!(destroy_results[0].scope, "obj.destroy");
     }
@@ -490,8 +499,115 @@ mod tests {
     #[test]
     fn class_expression_method_scope() {
         let src = "const MyClass = class { method() {} };";
-        let results = extract_definitions(&JsParser, "method", &[DefKind::Function], src);
+        let results = extract_definitions(&JsParser, "method", &[DefKind::Method], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "MyClass.method");
+    }
+
+    // --- Sub-kind classification for method_definition ---
+
+    #[test]
+    fn class_method_is_method_kind() {
+        let src = "class Foo { bar() {} }";
+        let results = extract_definitions(&JsParser, "bar", &[DefKind::Method], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Method);
+        assert_eq!(results[0].scope, "Foo.bar");
+    }
+
+    #[test]
+    fn class_constructor_is_constructor_kind() {
+        let src = "class Foo { constructor() {} }";
+        let results = extract_definitions(&JsParser, "constructor", &[DefKind::Constructor], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Constructor);
+        assert_eq!(results[0].scope, "Foo.constructor");
+    }
+
+    #[test]
+    fn class_getter_is_getter_kind() {
+        let src = "class Foo { get name() { return 1; } }";
+        let results = extract_definitions(&JsParser, "name", &[DefKind::Getter], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Getter);
+        assert_eq!(results[0].scope, "Foo.name");
+    }
+
+    #[test]
+    fn class_setter_is_setter_kind() {
+        let src = "class Foo { set name(v) { this._name = v; } }";
+        let results = extract_definitions(&JsParser, "name", &[DefKind::Setter], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Setter);
+        assert_eq!(results[0].scope, "Foo.name");
+    }
+
+    #[test]
+    fn object_literal_method_is_method_kind() {
+        let src = "const obj = { init() {} };";
+        let results = extract_definitions(&JsParser, "init", &[DefKind::Method], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Method);
+        assert_eq!(results[0].scope, "obj.init");
+    }
+
+    #[test]
+    fn object_literal_getter_is_getter_kind() {
+        let src = "const obj = { get x() { return 1; } };";
+        let results = extract_definitions(&JsParser, "x", &[DefKind::Getter], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Getter);
+        assert_eq!(results[0].scope, "obj.x");
+    }
+
+    #[test]
+    fn object_literal_setter_is_setter_kind() {
+        let src = "const obj = { set x(v) {} };";
+        let results = extract_definitions(&JsParser, "x", &[DefKind::Setter], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Setter);
+        assert_eq!(results[0].scope, "obj.x");
+    }
+
+    #[test]
+    fn method_kind_excludes_top_level_function() {
+        let src = "function foo() {}";
+        let results = extract_definitions(&JsParser, "foo", &[DefKind::Method], src);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn function_kind_excludes_class_method() {
+        let src = "class Foo { bar() {} }";
+        let results = extract_definitions(&JsParser, "bar", &[DefKind::Function], src);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn callable_includes_all_sub_kinds() {
+        let src = "function foo() {} class Bar { constructor() {} baz() {} get x() { return 1; } set x(v) {} }";
+        let all_callables = &[
+            DefKind::Function,
+            DefKind::Method,
+            DefKind::Constructor,
+            DefKind::Getter,
+            DefKind::Setter,
+        ];
+        let foo = extract_definitions(&JsParser, "foo", all_callables, src);
+        assert_eq!(foo.len(), 1);
+        assert_eq!(foo[0].kind, DefKind::Function);
+
+        let ctor = extract_definitions(&JsParser, "constructor", all_callables, src);
+        assert_eq!(ctor.len(), 1);
+        assert_eq!(ctor[0].kind, DefKind::Constructor);
+
+        let baz = extract_definitions(&JsParser, "baz", all_callables, src);
+        assert_eq!(baz.len(), 1);
+        assert_eq!(baz[0].kind, DefKind::Method);
+
+        let getter = extract_definitions(&JsParser, "x", all_callables, src);
+        assert_eq!(getter.len(), 2); // getter + setter both match "x"
+        assert!(getter.iter().any(|r| r.kind == DefKind::Getter));
+        assert!(getter.iter().any(|r| r.kind == DefKind::Setter));
     }
 }

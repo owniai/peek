@@ -29,10 +29,12 @@ Mode is selected by the first positional argument:
 
 `[PATHS]` narrows search scope in search mode. Defaults to current working directory.
 
+Callable-kind bodies are not recursed into (Bash and Lua excepted).
+
 ## Pattern Syntax
 
-- Uses Rust regex (same syntax as ripgrep). `.` and `\` are regex special characters — `peek App.run` treats the dot as a wildcard, matching `AppXrun`, `Apparun`, etc. in addition to the literal `App.run`; escape as `App\.run` for exact literal match, or use `-w` for whole-word matching
-- Use `-e` for multiple OR patterns: `peek -e 'parse_*' -e 'build_*'`
+- Uses Rust regex (same syntax as ripgrep). All regex special characters (`.`, `*`, `+`, `?`, `|`, `(`, `)`, `[`, `]`, `{`, `}`, `\`, `^`, `$`) lose literal meaning — escape with `\` for exact match, or use `-w` for whole-word matching
+- Scope separators `.` and `\` are regex special — escape with `\` for exact match (e.g., `peek App\.run`, `peek App\\Models`)
 
 ## Examples
 
@@ -42,48 +44,55 @@ peek 'MyClass::run'                      # scope-qualified search
 peek 'run' src/lib.rs src/app.rs         # search within specific paths
 peek src/main.rs                         # survey file definitions
 peek -c src/                             # count definitions per file
+peek -k callable 'parse_*'               # filter by category: functions/methods/constructors etc.
 peek -k function -g '!*test*' 'parse_*'  # filter by kind, exclude tests
 peek -e 'parse_*' -e 'build_*' src/      # multiple OR patterns
+peek 'parse_*|build_*' src/              # equivalent to previous: regex alternation
 peek -e 'main.rs'                        # disambiguate pattern from path
+peek -D 1 src/                           # top-level definitions only
 peek -k function 'parse_*' | grep -v tests::  # pipe to exclude scopes
 ```
 
 ## Options
 
-- `-k, --kind <KIND>` — Filter by definition kind. Comma-separated: `function`, `class`, `struct`, `enum`, `type`, `trait`, `interface`, `const`, `record`, `delegate`, `event`, `object`, `protocol`, `actor`, `extension`, `mixin`, `module`, `macro`
+- `-k, --kind <KIND>` — Filter by definition kind. Comma-separated specific kinds, or category tags that expand:
+  - **Kinds**: `function`, `method`, `constructor`, `getter`, `setter`, `operator`, `destructor`, `subscript`, `class`, `struct`, `enum`, `union`, `record`, `object`, `actor`, `const`, `event`, `field`, `property`, `static`, `variant`, `interface`, `trait`, `protocol`, `mixin`, `extension`, `delegate`, `module`, `macro`, `alias`, `namespace`, `package`, `annotation`
+  - **Categories**: `callable` → function/method/constructor/getter/setter/operator/destructor/subscript · `shape` → class/struct/enum/union/record/object/actor · `value` → const/event/field/property/static/variant · `contract` → interface/trait/protocol/mixin/extension/delegate
 - `-e, --regexp <PATTERN>` — Explicit pattern. Use to combine OR patterns (`-e 'a' -e 'b'`) or disambiguate from paths. When present, positional args become `[PATHS]` only
 - `-w, --word-regexp` — Match as a whole word
-- `-i, --ignore-case` — Case-insensitive matching
-- `-S, --smart-case` — Case-insensitive unless pattern contains uppercase
+- `-i, --ignore-case` / `-S, --smart-case` — Case-insensitive / smart case (mutually exclusive, default: case-sensitive)
 - `-g, --glob <GLOB>` — File glob filter. Repeatable; `!` negates (e.g., `-g '*.rs' -g '!*test*'`)
-- `--hidden` — Search hidden files and directories
-- `--no-ignore` — Don't respect .gitignore and .ignore
-- `-d, --max-depth <N>` — Max directory traversal depth
+- `-D, --max-scope-depth <N>` — Filter by scope path depth (1 = top-level definitions only)
+- `-l, --files-with-matches` / `-c, --count` — Print matching files / match count per file (mutually exclusive)
 - `--json` — NDJSON output (see Output Formats)
-- `-l, --files-with-matches` — Print which files matched
-- `-c, --count` — Print match count per file
-- `-H, --with-filename` — Always show file path prefix (default: suppressed for single file)
-- `-I, --no-filename` — Never show file path prefix
-- `-M, --no-messages` — Suppress non-fatal error messages
-- `--no-signature` — Omit signature from default output
-- `--path-separator <CHAR>` — Set path separator in output
-- `-V, --version` — Print version
-- `-h, --help` — Print help message
+- `--no-signature` — Omit signatures from output
+- Additional flags (ripgrep-compatible): `--heading`/`--no-heading`, `--hidden`, `--no-ignore`, `-d, --max-depth <N>`, `-H, --with-filename`, `-I, --no-filename`, `-M, --no-messages`, `-V, --version`, `-h, --help`
 
 ## Output Formats
 
-Line numbers are 1-based across all formats.
+Line numbers are 1-based. Path prefix shown for multiple files, suppressed for single file (`-H` always on, `-I` always off). When stdout is a tty, `--heading` groups by file (path on own line). Signatures exceeding 256 characters are truncated with ` [truncated]`.
 
-**Default** — `[<path>:]<line_start>-<line_end> [[<kind>/<scope>]] <signature>`
+**Default** — `[<path>:]<line> [<kind>/<scope>] <signature>`
+
+Single-line: `line` (e.g., `15`). Multi-line: `start-end` (e.g., `10-25`).
 
 ```
-src/main.rs:42-45 [[function/App::run]] pub fn run(&self) -> Result<()>
-src/app.rs:10-12 [[struct/App]] struct App { /* fields */ }
+src/main.rs:42-45 [function/App::run] pub fn run(&self) -> Result<()>
+src/app.rs:10 [struct/App] struct App { /* fields */ }
 ```
 
-Path prefix shown for multiple files, suppressed for single file. Use `-H` to always show, `-I` to always hide.
+**Survey** — Definitions contained within the previous definition's range use abbreviated format (no path prefix, no `[kind/scope]`):
 
-**`--json`** — NDJSON with `begin`/`match`/`end`/`summary` record types. `match` records always include `path`, `line_start`, `line_end`, `kind`, `scope`, `signature`. `summary` is always the last record (contains `matched`, `files`, `errors`).
+```
+src/app.py:1-30 [class/App] class App:
+3 MAX = 100
+5-8 def __init__(self, name):
+10-15 def run(self):
+```
+
+With `--no-signature`, contained definitions are entirely omitted.
+
+**`--json`** — NDJSON: `begin`/`match`/`end`/`summary` records. `match` includes `path`, `line_start`, `line_end`, `kind`, `scope`, `signature`. `summary` (always last) includes `matched`, `files`, `errors`.
 
 ## Exit Codes
 

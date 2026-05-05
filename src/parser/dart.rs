@@ -19,12 +19,19 @@ impl LanguageParser for DartParser {
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
+            DefKind::Method,
+            DefKind::Constructor,
+            DefKind::Getter,
+            DefKind::Setter,
+            DefKind::Operator,
             DefKind::Class,
             DefKind::Enum,
             DefKind::Const,
-            DefKind::Type,
+            DefKind::Alias,
             DefKind::Mixin,
             DefKind::Extension,
+            DefKind::Field,
+            DefKind::Variant,
         ]
     }
 
@@ -67,11 +74,17 @@ fn collect_definitions(
         "operator_signature" => {
             handle_operator_sig(node, source, mode, kinds, results, scope);
         }
+        "factory_constructor_signature" => {
+            handle_factory_constructor(node, source, mode, kinds, results, scope);
+        }
         "getter_signature" | "setter_signature" => {
             handle_accessor(node, source, mode, kinds, results, scope);
         }
         "static_final_declaration_list" => {
             handle_const_list(node, source, mode, kinds, results, scope);
+        }
+        "enum_constant" => {
+            handle_enum_constant(node, source, mode, kinds, results, scope);
         }
         "declaration" => {
             handle_declaration(node, source, mode, kinds, results, scope);
@@ -249,7 +262,7 @@ fn handle_type_alias(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Type) {
+    if !kinds.contains(&DefKind::Alias) {
         return;
     }
 
@@ -263,7 +276,7 @@ fn handle_type_alias(
             let [start, end] = line_range(start_row, node);
 
             results.push(DefContent {
-                kind: DefKind::Type,
+                kind: DefKind::Alias,
                 lines: [start, end],
                 signature,
                 scope: own_scope,
@@ -273,6 +286,7 @@ fn handle_type_alias(
 }
 
 /// Handle top-level function_signature (paired with function_body as sibling).
+/// In class body (scope non-empty), emits Method; at top-level (scope empty), emits Function.
 fn handle_function_sig(
     node: Node,
     source: &str,
@@ -281,7 +295,12 @@ fn handle_function_sig(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Function) {
+    let def_kind = if scope.is_empty() {
+        DefKind::Function
+    } else {
+        DefKind::Method
+    };
+    if !kinds.contains(&def_kind) {
         return;
     }
 
@@ -301,7 +320,7 @@ fn handle_function_sig(
 
     let own_scope = build_scope_from_node(node, source, scope, ".");
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: def_kind,
         lines: [start_row, end_row],
         signature,
         scope: own_scope,
@@ -309,7 +328,7 @@ fn handle_function_sig(
 }
 
 /// Handle operator_signature (Dart operator overloading).
-/// Node structure: operator_signature → type_identifier, operator, *_operator, formal_parameter_list
+/// Node structure: operator_signature -> type_identifier, operator, *_operator, formal_parameter_list
 fn handle_operator_sig(
     node: Node,
     source: &str,
@@ -318,7 +337,7 @@ fn handle_operator_sig(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Function) {
+    if !kinds.contains(&DefKind::Operator) {
         return;
     }
 
@@ -334,10 +353,70 @@ fn handle_operator_sig(
     let end_row = dart_end_row(node);
 
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: DefKind::Operator,
         lines: [start_row, end_row],
         signature,
         scope: own_scope,
+    });
+}
+
+/// Handle factory_constructor_signature node (appears inside method_signature in class body).
+/// Extraction logic mirrors handle_declaration's constructor handling but with Constructor kind.
+fn handle_factory_constructor(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Constructor) {
+        return;
+    }
+
+    // factory_constructor_signature has name fields: class identifier, ".", constructor identifier
+    let mut cursor = node.walk();
+    let idents: Vec<Node> = node
+        .children(&mut cursor)
+        .filter(|c| c.kind() == "identifier")
+        .collect();
+
+    let (match_name, ctor_scope) = if idents.len() >= 2 {
+        // Named factory constructor: Foo.admin()
+        let ctor_name = node_text_ref(idents[1], source);
+        (ctor_name, build_scope(scope, ".", ctor_name))
+    } else if let Some(class_ident) = idents.first() {
+        // Default factory constructor: Foo()
+        let class_name = node_text_ref(*class_ident, source);
+        (class_name, build_scope(scope, ".", class_name))
+    } else {
+        return;
+    };
+
+    if !mode.matches_ident(match_name) {
+        return;
+    }
+
+    // Use parent node for signature if available (method_signature or class_member)
+    let sig_node = node
+        .parent()
+        .and_then(|p| {
+            if p.kind() == "method_signature" || p.kind() == "class_member" {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(node);
+    let signature = extract_signature_to_body(sig_node, source);
+    let start_row = (node.start_position().row + 1) as u32;
+    let end_row = dart_end_row(node);
+
+    results.push(DefContent {
+        kind: DefKind::Constructor,
+        lines: [start_row, end_row],
+        signature,
+        scope: ctor_scope,
     });
 }
 
@@ -354,7 +433,7 @@ fn extract_operator_name(node: Node, source: &str) -> String {
     "operator".to_string()
 }
 
-/// Handle getter_signature and setter_signature at top level.
+/// Handle getter_signature and setter_signature at top level or in class body.
 fn handle_accessor(
     node: Node,
     source: &str,
@@ -363,7 +442,12 @@ fn handle_accessor(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Function) {
+    let def_kind = if node.kind() == "getter_signature" {
+        DefKind::Getter
+    } else {
+        DefKind::Setter
+    };
+    if !kinds.contains(&def_kind) {
         return;
     }
 
@@ -384,8 +468,44 @@ fn handle_accessor(
     let end_row = dart_end_row(node);
 
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: def_kind,
         lines: [start_row, end_row],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle enum_constant node inside enum_body: extract as Variant.
+fn handle_enum_constant(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Variant) {
+        return;
+    }
+
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Variant,
+        lines: [start, end],
         signature,
         scope: own_scope,
     });
@@ -435,9 +555,21 @@ fn handle_declaration(
         return;
     }
 
+    // Check for field (initialized_identifier_list inside declaration, not const)
+    if kinds.contains(&DefKind::Field) {
+        if let Some(id_list) = children
+            .iter()
+            .find(|c| c.kind() == "initialized_identifier_list")
+        {
+            extract_field_names(*id_list, source, mode, results, scope);
+        }
+    }
+
     // Check for method signatures inside declaration (e.g., constructor)
-    // For constructor_signature, we treat it as a Function
-    if kinds.contains(&DefKind::Function) {
+    // For constructor_signature, we treat it as Constructor
+    let callable_kinds = [DefKind::Constructor, DefKind::Method];
+    let any_callable = callable_kinds.iter().any(|k| kinds.contains(k));
+    if any_callable {
         for child in children.iter() {
             match child.kind() {
                 "constructor_signature"
@@ -464,21 +596,21 @@ fn handle_declaration(
                         continue;
                     };
 
-                    if mode.matches_ident(match_name) {
+                    if kinds.contains(&DefKind::Constructor) && mode.matches_ident(match_name) {
                         let signature = extract_signature_to_body(node, source);
                         let start_row = (node.start_position().row + 1) as u32;
                         let end_row = dart_end_row(node);
 
                         results.push(DefContent {
-                            kind: DefKind::Function,
+                            kind: DefKind::Constructor,
                             lines: [start_row, end_row],
                             signature,
                             scope: ctor_scope,
                         });
                     }
                 }
-                "function_signature" => {
-                    // Abstract method inside class (declaration > function_signature)
+                "function_signature" if kinds.contains(&DefKind::Method) => {
+                    // Abstract method inside class (declaration > function_signature) -> Method
                     if let Some(name_node) = child.child_by_field_name("name") {
                         let name_ref = node_text_ref(name_node, source);
                         if mode.matches_ident(name_ref) {
@@ -488,7 +620,7 @@ fn handle_declaration(
                             let end_row = dart_end_row(node);
 
                             results.push(DefContent {
-                                kind: DefKind::Function,
+                                kind: DefKind::Method,
                                 lines: [start_row, end_row],
                                 signature,
                                 scope: own_scope,
@@ -564,6 +696,43 @@ fn extract_const_names(
                 }
             }
         }
+    }
+}
+
+/// Extract field names from initialized_identifier_list (Dart class fields).
+fn extract_field_names(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "initialized_identifier" {
+            continue;
+        }
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) => n,
+            None => continue,
+        };
+        let name_ref = node_text_ref(name_node, source);
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+
+        let own_scope = build_scope(scope, ".", name_ref);
+        let sig = first_line_of_node(child, source);
+        let signature = normalize_signature(&sig);
+        let start_row = (child.start_position().row + 1) as u32;
+        let end_row = dart_end_row(child);
+
+        results.push(DefContent {
+            kind: DefKind::Field,
+            lines: [start_row, end_row],
+            signature,
+            scope: own_scope,
+        });
     }
 }
 
@@ -678,9 +847,9 @@ class Vector {
   Vector operator +(Vector other) => Vector(x + other.x, y + other.y);
 }
 "#;
-        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Function], source);
+        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Operator], source);
         assert_eq!(defs.len(), 1, "operator+ should be extracted");
-        assert_eq!(defs[0].kind, DefKind::Function);
+        assert_eq!(defs[0].kind, DefKind::Operator);
         assert_eq!(defs[0].scope, "Vector.operator+");
         assert!(defs[0].signature.contains("operator"));
     }
@@ -694,7 +863,7 @@ class Money {
   bool operator ==(Object other) => other is Money && amount == other.amount;
 }
 "#;
-        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Function], source);
+        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Operator], source);
         assert_eq!(defs.len(), 1, "operator== should be extracted");
         assert_eq!(defs[0].scope, "Money.operator==");
     }
@@ -726,13 +895,14 @@ class Point {
 }
 "#;
         // Search for named constructor "origin" — should find it
-        let defs = extract_definitions(&DartParser, "origin", &[DefKind::Function], source);
+        let defs = extract_definitions(&DartParser, "origin", &[DefKind::Constructor], source);
         assert_eq!(defs.len(), 1, "named constructor 'origin' should be found");
         assert_eq!(defs[0].scope, "Point.origin");
         assert!(defs[0].signature.contains("origin"));
 
         // Default constructor should still work — search by class name "Point"
-        let default_defs = extract_definitions(&DartParser, "Point", &[DefKind::Function], source);
+        let default_defs =
+            extract_definitions(&DartParser, "Point", &[DefKind::Constructor], source);
         // Both constructors match: default (name=Point) and named (class=Point for scope)
         // The default constructor matches on "Point" directly
         assert!(
@@ -752,12 +922,12 @@ abstract class Shape {
 "#;
         // "describe" is a concrete method (has body) - should be found
         let concrete_defs =
-            extract_definitions(&DartParser, "describe", &[DefKind::Function], source);
+            extract_definitions(&DartParser, "describe", &[DefKind::Method], source);
         assert_eq!(concrete_defs.len(), 1, "concrete method should be found");
         assert_eq!(concrete_defs[0].scope, "Shape.describe");
 
         // "area" is an abstract method (no body) - should be found via function_signature
-        let abstract_defs = extract_definitions(&DartParser, "area", &[DefKind::Function], source);
+        let abstract_defs = extract_definitions(&DartParser, "area", &[DefKind::Method], source);
         assert_eq!(
             abstract_defs.len(),
             1,
@@ -767,7 +937,7 @@ abstract class Shape {
 
         // "perimeter" is also abstract - should be found
         let perimeter_defs =
-            extract_definitions(&DartParser, "perimeter", &[DefKind::Function], source);
+            extract_definitions(&DartParser, "perimeter", &[DefKind::Method], source);
         assert_eq!(
             perimeter_defs.len(),
             1,
@@ -786,12 +956,12 @@ abstract class Repository {
 }
 "#;
         // Concrete method "log" (has function body) - should be found
-        let log_defs = extract_definitions(&DartParser, "log", &[DefKind::Function], source);
+        let log_defs = extract_definitions(&DartParser, "log", &[DefKind::Method], source);
         assert_eq!(log_defs.len(), 1, "concrete method 'log' should be found");
         assert_eq!(log_defs[0].scope, "Repository.log");
 
         // Abstract method "findById" (no body, semicolon only) - should be found
-        let find_defs = extract_definitions(&DartParser, "findById", &[DefKind::Function], source);
+        let find_defs = extract_definitions(&DartParser, "findById", &[DefKind::Method], source);
         assert_eq!(
             find_defs.len(),
             1,
@@ -800,12 +970,180 @@ abstract class Repository {
         assert_eq!(find_defs[0].scope, "Repository.findById");
 
         // Abstract method "delete" (no body) - should be found
-        let delete_defs = extract_definitions(&DartParser, "delete", &[DefKind::Function], source);
+        let delete_defs = extract_definitions(&DartParser, "delete", &[DefKind::Method], source);
         assert_eq!(
             delete_defs.len(),
             1,
             "abstract method 'delete' should be extracted"
         );
         assert_eq!(delete_defs[0].scope, "Repository.delete");
+    }
+
+    // --- Sub-kind classification tests ---
+
+    #[test]
+    fn test_top_level_function_is_function_kind() {
+        let source = "void globalHelper(String msg) {}";
+        let defs = extract_definitions(&DartParser, "globalHelper", &[DefKind::Function], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Function);
+    }
+
+    #[test]
+    fn test_class_method_is_method_kind() {
+        let source = "class Foo { void bar() {} }";
+        let defs = extract_definitions(&DartParser, "bar", &[DefKind::Method], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Method);
+        assert_eq!(defs[0].scope, "Foo.bar");
+    }
+
+    #[test]
+    fn test_constructor_is_constructor_kind() {
+        let source = "class Point { final int x; Point(this.x); }";
+        let defs = extract_definitions(&DartParser, "Point", &[DefKind::Constructor], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Constructor);
+        assert_eq!(defs[0].scope, "Point.Point");
+    }
+
+    #[test]
+    fn test_named_constructor_is_constructor_kind() {
+        let source = "class Point { Point.origin() : this(0); }";
+        let defs = extract_definitions(&DartParser, "origin", &[DefKind::Constructor], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Constructor);
+        assert_eq!(defs[0].scope, "Point.origin");
+    }
+
+    #[test]
+    fn test_factory_constructor_is_constructor_kind() {
+        let source = "class Foo { factory Foo.admin() => Foo(); }";
+        let defs = extract_definitions(&DartParser, "admin", &[DefKind::Constructor], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Constructor);
+        assert_eq!(defs[0].scope, "Foo.admin");
+    }
+
+    #[test]
+    fn test_getter_is_getter_kind() {
+        let source = "class Foo { String get name => 'foo'; }";
+        let defs = extract_definitions(&DartParser, "name", &[DefKind::Getter], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Getter);
+        assert_eq!(defs[0].scope, "Foo.name");
+    }
+
+    #[test]
+    fn test_setter_is_setter_kind() {
+        let source = "class Foo { set name(String v) {} }";
+        let defs = extract_definitions(&DartParser, "name", &[DefKind::Setter], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Setter);
+        assert_eq!(defs[0].scope, "Foo.name");
+    }
+
+    #[test]
+    fn test_operator_is_operator_kind() {
+        let source = "class Vector { Vector operator +(Vector other) => this; }";
+        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Operator], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Operator);
+        assert_eq!(defs[0].scope, "Vector.operator+");
+    }
+
+    #[test]
+    fn test_function_kind_excludes_class_method() {
+        let source = "class Foo { void bar() {} }";
+        let defs = extract_definitions(&DartParser, "bar", &[DefKind::Function], source);
+        assert!(
+            defs.is_empty(),
+            "class method should not match Function kind"
+        );
+    }
+
+    #[test]
+    fn test_method_kind_excludes_top_level_function() {
+        let source = "void globalHelper() {}";
+        let defs = extract_definitions(&DartParser, "globalHelper", &[DefKind::Method], source);
+        assert!(
+            defs.is_empty(),
+            "top-level function should not match Method kind"
+        );
+    }
+
+    #[test]
+    fn test_enum_constant_extracted_as_variant() {
+        let source = r#"
+enum Color {
+  red,
+  green,
+  blue
+}
+"#;
+        let defs = extract_definitions(&DartParser, "red", &[DefKind::Variant], source);
+        assert_eq!(
+            defs.len(),
+            1,
+            "enum constant 'red' should be found as Variant"
+        );
+        assert_eq!(defs[0].kind, DefKind::Variant);
+        assert_eq!(defs[0].scope, "Color.red");
+    }
+
+    #[test]
+    fn test_enum_constant_not_extracted_as_const() {
+        let source = r#"
+enum Color {
+  red,
+  green,
+  blue
+}
+"#;
+        let defs = extract_definitions(&DartParser, "red", &[DefKind::Const], source);
+        assert!(defs.is_empty(), "enum constant should not match Const kind");
+    }
+
+    #[test]
+    fn test_enum_constant_with_constructor_args() {
+        let source = r#"
+enum Planet {
+  earth(6371),
+  mars(3390);
+
+  final int radius;
+  const Planet(this.radius);
+}
+"#;
+        let defs = extract_definitions(&DartParser, "earth", &[DefKind::Variant], source);
+        assert_eq!(
+            defs.len(),
+            1,
+            "enum constant 'earth' with args should be found"
+        );
+        assert_eq!(defs[0].kind, DefKind::Variant);
+        assert_eq!(defs[0].scope, "Planet.earth");
+
+        let mars_defs = extract_definitions(&DartParser, "mars", &[DefKind::Variant], source);
+        assert_eq!(mars_defs.len(), 1, "enum constant 'mars' should be found");
+        assert_eq!(mars_defs[0].scope, "Planet.mars");
+    }
+
+    #[test]
+    fn test_extension_method_is_method_kind() {
+        let source = "extension StringExt on String { String rep() => this; }";
+        let defs = extract_definitions(&DartParser, "rep", &[DefKind::Method], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Method);
+        assert_eq!(defs[0].scope, "StringExt.rep");
+    }
+
+    #[test]
+    fn test_mixin_method_is_method_kind() {
+        let source = "mixin Loggable { void log() {} }";
+        let defs = extract_definitions(&DartParser, "log", &[DefKind::Method], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Method);
+        assert_eq!(defs[0].scope, "Loggable.log");
     }
 }

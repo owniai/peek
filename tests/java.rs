@@ -15,6 +15,7 @@ fn peek_java_abstract_method_throws_signature() {
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     // BUG: The signature should contain "throws IOException" but it is truncated
     assert!(
         stdout.contains("throws"),
@@ -30,6 +31,7 @@ fn peek_java_interface_method_throws_signature() {
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     // BUG: The signature should contain "throws IllegalArgumentException" but it is truncated
     assert!(
         stdout.contains("throws"),
@@ -132,89 +134,96 @@ fn peek_java_inner_enum() {
 
 #[test]
 fn peek_java_method_scope_in_class() {
-    let output = peek(&["-k", "function", "helperMethod", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "helperMethod", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "MyClass.InnerHelper.helperMethod");
 }
 
 #[test]
 fn peek_java_abstract_method_scope() {
-    let output = peek(&["-k", "function", "area", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "area", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "Shape.area");
 }
 
 #[test]
 fn peek_java_enum_constructor_scope() {
-    let output = peek(&["-k", "function", "Color", "tests/fixtures/java"]);
+    let output = peek(&["-k", "constructor", "Color", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
-    // substring matching: "Color" also matches Color.getHex
-    assert_eq!(results.len(), 2);
+    // Constructor only — method getHex excluded by kind filter
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "constructor");
     assert_eq!(results[0].scope, "Color.Color");
 }
 
 #[test]
 fn peek_java_enum_method_scope() {
-    let output = peek(&["-k", "function", "getHex", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "getHex", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "Color.getHex");
 }
 
 #[test]
 fn peek_java_interface_method_scope() {
-    let output = peek(&["-k", "function", "render", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "render", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "Renderable.render");
 }
 
 #[test]
 fn peek_java_interface_default_method_scope() {
-    let output = peek(&["-k", "function", "resize", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "resize", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "Renderable.resize");
 }
 
 #[test]
 fn peek_java_interface_static_method_scope() {
-    let output = peek(&["-k", "function", "factory", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "factory", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "Renderable.factory");
 }
 
 #[test]
 fn peek_java_static_method_scope() {
-    let output = peek(&["-k", "function", "multiply", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "multiply", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "Calculator.multiply");
 }
 
 #[test]
 fn peek_java_overloaded_methods() {
-    let output = peek(&["-k", "function", "add", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "add", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -222,16 +231,116 @@ fn peek_java_overloaded_methods() {
     assert!(
         results
             .iter()
-            .all(|r| r.scope == "Calculator.add" && r.kind == "function")
+            .all(|r| r.scope == "Calculator.add" && r.kind == "method")
     );
 }
 
 #[test]
 fn peek_java_inner_interface_method_scope() {
-    let output = peek(&["-k", "function", "serialize", "tests/fixtures/java"]);
+    let output = peek(&["-k", "method", "serialize", "tests/fixtures/java"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "MyClass.Serializable.serialize");
+}
+
+// === Field tests ===
+
+#[test]
+fn peek_java_field_scope() {
+    let output = peek(&["-k", "field", "-w", "field", "tests/fixtures/java"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "MyClass.field")
+    );
+}
+
+#[test]
+fn peek_java_inner_class_field_scope() {
+    let output = peek(&["-k", "field", "-w", "name", "tests/fixtures/java"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "MyClass.Builder.name")
+    );
+}
+
+#[test]
+fn peek_java_deeply_nested_field_scope() {
+    let output = peek(&["-k", "field", "-w", "debug", "tests/fixtures/java"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "MyClass.Builder.Config.debug")
+    );
+}
+
+#[test]
+fn peek_java_field_kind_excludes_class() {
+    let output = peek(&["-k", "class", "-w", "field", "tests/fixtures/java"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "field name should not match -k class"
+    );
+}
+
+#[test]
+fn peek_java_value_category_includes_field() {
+    let output = peek(&["-k", "value", "-w", "field", "tests/fixtures/java"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|r| r.kind == "field"));
+}
+
+// === Package extraction tests ===
+
+#[test]
+fn peek_java_package_extraction() {
+    let output = peek(&["-k", "package", "-e", "com.example", "tests/fixtures/java"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    // Both Sample.java and Comprehensive.java have "package com.example;"
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .all(|r| r.kind == "package" && r.scope == "com.example")
+    );
+    assert!(
+        results.iter().any(|r| r.start == 2),
+        "package declaration should start on line 2"
+    );
+}
+
+#[test]
+fn peek_java_package_signature() {
+    let output = peek(&["-k", "package", "-e", "com.example", "tests/fixtures/java"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .all(|r| r.signature.contains("package com.example"))
+    );
 }

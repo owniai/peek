@@ -60,3 +60,9 @@ const char *MSG = "hello";
 void withLocalDefs(void) {
     const int LOCAL_CONST = 42;
 }
+
+// === Static variables ===
+
+static int file_count = 0;
+
+static char *file_name;

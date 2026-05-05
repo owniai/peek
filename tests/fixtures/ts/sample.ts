@@ -80,3 +80,18 @@ namespace MyApp {
 module ModSpace {
   export function modFunc(): void {}
 }
+
+// Fields and Properties
+class FieldClass {
+  publicId: number;
+  private _name: string;
+  readonly createdAt: Date;
+  static instanceCount: number;
+}
+
+interface PropertyInterface {
+  id: number;
+  label: string;
+  optional?: boolean;
+  readonly immutable: string;
+}

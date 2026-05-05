@@ -87,10 +87,11 @@ fn test_python_basic_classes() {
     assert_eq!(results[0].scope, "SimpleClass");
 
     // instance_method: 1 result, scope=SimpleClass.instance_method
-    let output = peek(&["-k", "function", "instance_method", path]);
+    let output = peek(&["-k", "method", "instance_method", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "SimpleClass.instance_method");
 
     // EmptyClass: 1 result, single-line class (start == end)
@@ -116,7 +117,7 @@ fn test_python_class_methods_scope() {
     let path = "tests/fixtures/python/basic_classes.py";
 
     // static_helper: scope contains class name (StaticHolder.static_helper)
-    let output = peek(&["-k", "function", "static_helper", path]);
+    let output = peek(&["-k", "method", "static_helper", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
@@ -127,7 +128,7 @@ fn test_python_class_methods_scope() {
     );
 
     // factory_method: scope contains class name (ClassMeta.factory_method)
-    let output = peek(&["-k", "function", "factory_method", path]);
+    let output = peek(&["-k", "method", "factory_method", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
@@ -138,7 +139,7 @@ fn test_python_class_methods_scope() {
     );
 
     // __init__: scope contains class name (InitializerClass.__init__)
-    let output = peek(&["-k", "function", "__init__", path]);
+    let output = peek(&["-k", "method", "__init__", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
@@ -161,21 +162,21 @@ fn test_python_async_definitions() {
     assert_eq!(results[0].kind, "function");
 
     // process: 1 result, scope=AsyncService.process
-    let output = peek(&["-k", "function", "process", path]);
+    let output = peek(&["-k", "method", "process", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].scope, "AsyncService.process");
 
     // async_static: 1 result, scope=AsyncHelper.async_static
-    let output = peek(&["-k", "function", "async_static", path]);
+    let output = peek(&["-k", "method", "async_static", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].scope, "AsyncHelper.async_static");
 
     // create: 1 result, scope=AsyncFactory.create
-    let output = peek(&["-k", "function", "create", path]);
+    let output = peek(&["-k", "method", "create", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
@@ -318,15 +319,15 @@ fn test_python_large_scale_count() {
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 3);
 
-    // func initialize -> 3 results
-    let output = peek(&["-k", "function", "initialize", path]);
+    // func initialize -> 3 results (1 function + 2 methods)
+    let output = peek(&["-k", "callable", "initialize", path]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 3);
 
     // func transform -> 2 results (use -w for whole-word matching to exclude typed_transform etc.)
-    let output = peek(&["-w", "-k", "function", "transform", path]);
+    let output = peek(&["-w", "-k", "callable", "transform", path]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -345,7 +346,7 @@ fn test_python_large_scale_scope_sampling() {
     let path = "tests/fixtures/python/large_scale.py";
 
     // initialize: 3 results with expected scopes
-    let output = peek(&["-k", "function", "initialize", path]);
+    let output = peek(&["-k", "callable", "initialize", path]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -384,7 +385,10 @@ fn test_python_large_scale_scope_sampling() {
     let all_lines: Vec<&str> = stdout.lines().collect();
     for line in all_lines.iter().skip(1) {
         assert!(
-            line.contains("[class/") || line.contains("[function/") || line.contains("[struct/"),
+            line.contains("[class/")
+                || line.contains("[function/")
+                || line.contains("[method/")
+                || line.contains("[struct/"),
             "expected valid format, got: {line}"
         );
     }
@@ -458,7 +462,7 @@ fn test_python_decorated_classes() {
     // home: decorated method inside class
     let output = peek(&[
         "-k",
-        "function",
+        "method",
         "home",
         "tests/fixtures/python/decorators.py",
     ]);
@@ -471,7 +475,7 @@ fn test_python_decorated_classes() {
     // cached_data: stacked decorator method inside class
     let output = peek(&[
         "-k",
-        "function",
+        "method",
         "cached_data",
         "tests/fixtures/python/decorators.py",
     ]);
@@ -513,7 +517,7 @@ fn test_python_nested_classes() {
     // deep_method: method inside 5-layer nested class
     let output = peek(&[
         "-k",
-        "function",
+        "method",
         "deep_method",
         "tests/fixtures/python/nested_definitions.py",
     ]);
@@ -529,7 +533,7 @@ fn test_python_nested_classes() {
     // inner_method: method inside 2-layer nested class
     let output = peek(&[
         "-k",
-        "function",
+        "method",
         "inner_method",
         "tests/fixtures/python/nested_definitions.py",
     ]);
@@ -571,7 +575,7 @@ fn test_python_same_name_different_scope() {
     // process: 3 results across different scopes
     let output = peek(&[
         "-k",
-        "function",
+        "callable",
         "process",
         "tests/fixtures/python/scope_resolution.py",
     ]);
@@ -596,7 +600,7 @@ fn test_python_same_name_different_scope() {
     // validate: 2 results
     let output = peek(&[
         "-k",
-        "function",
+        "callable",
         "validate",
         "tests/fixtures/python/scope_resolution.py",
     ]);
@@ -748,22 +752,22 @@ fn test_python_multiline_type_alias_signature() {
     // The signature for a multiline type alias should be flattened to one line.
     // The raw stdout will have the signature spanning multiple lines, which is
     // the bug we're detecting.
-    let output = peek(&["-k", "type", "Matrix", path]);
+    let output = peek(&["-k", "alias", "Matrix", path]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
 
     // Check the raw output: the signature line should contain the full type
     // on a single line. If the type alias definition line is followed by more
     // lines of the signature, that's the bug.
-    // Expected output line: "...type/Matrix]: type Matrix = list[list[float],]"
-    // Actual (buggy): "...type/Matrix]: type Matrix = list[" followed by more lines
+    // Expected output line: "...alias/Matrix]: type Matrix = list[list[float],]"
+    // Actual (buggy): "...alias/Matrix]: type Matrix = list[" followed by more lines
 
     // The signature should include the closing bracket, meaning it was properly
     // flattened. With the bug, the first output line only contains "type Matrix = list["
     // and the rest of the signature spills to subsequent lines.
     let def_line = stdout
         .lines()
-        .find(|l| l.contains("[type/Matrix]"))
+        .find(|l| l.contains("[alias/Matrix]"))
         .expect("should find Matrix definition line");
 
     // If the signature is properly flattened to one line, the definition line
@@ -772,9 +776,9 @@ fn test_python_multiline_type_alias_signature() {
     // because the type expression spills to subsequent lines.
     //
     // A properly flattened line would look like:
-    //   "...type/Matrix]: type Matrix = list[ list[float], ]"
+    //   "...alias/Matrix]: type Matrix = list[ list[float], ]"
     // The buggy line is:
-    //   "...type/Matrix]: type Matrix = list["
+    //   "...alias/Matrix]: type Matrix = list["
     // which does NOT contain the "]" from the closing of list[float].
     assert!(
         def_line.contains("list[float]"),
@@ -793,11 +797,11 @@ fn test_python_typealias_annotated_top_level() {
     let path = "tests/fixtures/python/modern_syntax.py";
 
     // HeaderValue: TypeAlias = str | list[str] | tuple[str, ...]
-    let output = peek(&["-k", "type", "HeaderValue", path]);
+    let output = peek(&["-k", "alias", "HeaderValue", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "type");
+    assert_eq!(results[0].kind, "alias");
     assert_eq!(results[0].scope, "HeaderValue");
 }
 
@@ -806,7 +810,7 @@ fn test_python_typealias_annotated_in_class() {
     let path = "tests/fixtures/python/modern_syntax.py";
 
     // Settings.Config: TypeAlias = dict[str, object]
-    let output = peek(&["-k", "type", "Config", path]);
+    let output = peek(&["-k", "alias", "Config", path]);
     assert!(output.status.success());
     let results = parse_defs(&String::from_utf8_lossy(&output.stdout));
     assert_eq!(results.len(), 1);
@@ -818,7 +822,7 @@ fn test_python_typealias_annotated_no_false_positive() {
     let path = "tests/fixtures/python/modern_syntax.py";
 
     // Regular annotated assignments (name: str) should NOT match -k type
-    let output = peek(&["-k", "type", "name", path]);
+    let output = peek(&["-k", "alias", "name", path]);
     assert_eq!(
         output.status.code(),
         Some(1),

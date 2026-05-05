@@ -17,7 +17,12 @@ impl LanguageParser for PythonParser {
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
-        &[DefKind::Function, DefKind::Class, DefKind::Type]
+        &[
+            DefKind::Function,
+            DefKind::Method,
+            DefKind::Class,
+            DefKind::Alias,
+        ]
     }
 
     impl_init_parser!(tree_sitter_python::LANGUAGE, "Python");
@@ -29,7 +34,7 @@ fn kind_for_node(node: Node) -> Option<DefKind> {
     match node.kind() {
         "function_definition" => Some(DefKind::Function),
         "class_definition" => Some(DefKind::Class),
-        "type_alias_statement" => Some(DefKind::Type),
+        "type_alias_statement" => Some(DefKind::Alias),
         _ => None,
     }
 }
@@ -170,6 +175,14 @@ fn try_add_definition<'a>(
         }
 
         // function_definition / class_definition
+        let mut def_kind = kind_for_node(node).unwrap();
+
+        // In Python, scope is only set by class_definition, so !scope.is_empty()
+        // means this function_definition is inside a class body → Method
+        if kind == "function_definition" && !scope.is_empty() {
+            def_kind = DefKind::Method;
+        }
+
         let name_ref = first_child_by_kind(node, "identifier").map(|n| node_text_ref(n, source));
         let own_scope = match name_ref {
             Some(name) => build_scope(scope, ".", name),
@@ -214,13 +227,13 @@ fn try_add_definition<'a>(
     if kind == "assignment" {
         if let Some(name) = try_extract_typealias_name(node, source) {
             let own_scope = build_scope(scope, ".", &name);
-            if kinds.contains(&DefKind::Type) && mode.matches_ident(&name) {
+            if kinds.contains(&DefKind::Alias) && mode.matches_ident(&name) {
                 let raw = flatten_bytes(node.start_byte(), node.end_byte(), source)
                     .unwrap_or_else(|| first_line_of_node(node, source));
                 let signature = clean_signature(&raw);
                 let [start, end] = line_range(node.start_position().row + 1, node);
                 results.push(DefContent {
-                    kind: DefKind::Type,
+                    kind: DefKind::Alias,
                     lines: [start, end],
                     signature,
                     scope: own_scope.clone(),
@@ -260,9 +273,9 @@ mod tests {
     #[test]
     fn extract_simple_type_alias() {
         let src = "type Point = tuple[float, float]";
-        let results = extract_definitions(&PythonParser, "Point", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "Point", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Type);
+        assert_eq!(results[0].kind, DefKind::Alias);
         assert_eq!(results[0].scope, "Point");
         assert!(results[0].signature.contains("type Point ="));
     }
@@ -270,7 +283,7 @@ mod tests {
     #[test]
     fn extract_generic_type_alias() {
         let src = "type Result[T] = T | None";
-        let results = extract_definitions(&PythonParser, "Result", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "Result", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "Result");
     }
@@ -278,7 +291,7 @@ mod tests {
     #[test]
     fn extract_type_alias_in_class() {
         let src = "class Config:\n    type Value = str | int";
-        let results = extract_definitions(&PythonParser, "Value", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "Value", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "Config.Value");
     }
@@ -286,7 +299,7 @@ mod tests {
     #[test]
     fn extract_type_alias_in_function() {
         let src = "def factory():\n    type LocalType = int";
-        let results = extract_definitions(&PythonParser, "LocalType", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "LocalType", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "factory.LocalType");
     }
@@ -294,9 +307,9 @@ mod tests {
     #[test]
     fn type_alias_not_matched_by_class() {
         let src = "type Point = tuple[float, float]\nclass Point: pass";
-        let results = extract_definitions(&PythonParser, "Point", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "Point", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Type);
+        assert_eq!(results[0].kind, DefKind::Alias);
     }
 
     #[test]
@@ -311,9 +324,9 @@ mod tests {
     #[test]
     fn extract_typealias_annotated() {
         let src = "HeaderValue: TypeAlias = str | list[str]";
-        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Type);
+        assert_eq!(results[0].kind, DefKind::Alias);
         assert_eq!(results[0].scope, "HeaderValue");
         assert!(results[0].signature.contains("HeaderValue: TypeAlias"));
     }
@@ -321,7 +334,7 @@ mod tests {
     #[test]
     fn extract_typealias_annotated_in_class() {
         let src = "class Config:\n    HeaderValue: TypeAlias = str | list[str]";
-        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "HeaderValue", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "Config.HeaderValue");
     }
@@ -336,14 +349,14 @@ mod tests {
     #[test]
     fn plain_annotation_not_detected_as_type() {
         let src = "name: str = \"hello\"";
-        let results = extract_definitions(&PythonParser, "name", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "name", &[DefKind::Alias], src);
         assert!(results.is_empty());
     }
 
     #[test]
     fn plain_assignment_not_detected_as_type() {
         let src = "MAX_SIZE = 100";
-        let results = extract_definitions(&PythonParser, "MAX_SIZE", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "MAX_SIZE", &[DefKind::Alias], src);
         assert!(results.is_empty());
     }
 
@@ -360,12 +373,12 @@ mod tests {
         // nests a definition inside type_alias_statement due to error recovery,
         // it should inherit the type alias scope.
         // Directly: verify method scope is Container.method (correct class scope chain).
-        let results = extract_definitions(&PythonParser, "method", &[DefKind::Function], src);
+        let results = extract_definitions(&PythonParser, "method", &[DefKind::Method], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "Container.method");
 
         // And verify the type alias itself has correct scope.
-        let results = extract_definitions(&PythonParser, "Inner", &[DefKind::Type], src);
+        let results = extract_definitions(&PythonParser, "Inner", &[DefKind::Alias], src);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].scope, "Container.Inner");
     }

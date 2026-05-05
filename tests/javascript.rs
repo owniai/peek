@@ -6,12 +6,12 @@ use common::{parse_defs, peek};
 
 #[test]
 fn peek_for_js_method_scope() {
-    let output = peek(&["-k", "function", "regularMethod", "tests/fixtures/js"]);
+    let output = peek(&["-k", "method", "regularMethod", "tests/fixtures/js"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, "function");
+    assert_eq!(results[0].kind, "method");
     assert_eq!(results[0].scope, "WithMethods.regularMethod");
 }
 
@@ -28,7 +28,7 @@ fn peek_for_js_nested_function_not_extracted() {
 
 #[test]
 fn peek_for_js_object_literal_method_scope() {
-    let output = peek(&["-k", "function", "methodOne", "tests/fixtures/js"]);
+    let output = peek(&["-k", "method", "methodOne", "tests/fixtures/js"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -118,3 +118,7 @@ fn peek_for_js_no_false_positive_base_class() {
         "undefined base class should not be matched"
     );
 }
+
+// Note: tree-sitter-javascript 0.25.0 does not support public_field_definition
+// (class fields like `x;` or `x = 1;` are not parsed as distinct nodes).
+// JavaScript Field extraction is NOT supported.

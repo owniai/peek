@@ -202,3 +202,22 @@ pub async fn complex_func<'a, T: Clone + Send + 'static>(
 ) -> Result<Vec<T>, Box<dyn std::error::Error>> {
     Ok(x.to_vec())
 }
+
+// === 17. Union ===
+#[repr(C)]
+union IntOrFloat {
+    i: i32,
+    f: f32,
+}
+
+// === 18. Static items ===
+
+static GLOBAL_COUNT: usize = 0;
+
+static mut MUTABLE_STATE: bool = false;
+
+// === 19. Static inside module ===
+
+mod config {
+    static MAX_RETRIES: u32 = 3;
+}

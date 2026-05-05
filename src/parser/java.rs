@@ -1,7 +1,7 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
     LanguageParser, MatchMode, build_scope, build_scope_from_node, first_child_by_kind,
-    first_line_of_node, flatten_bytes, line_range, node_text_ref, normalize_signature,
+    first_line_of_node, flatten_bytes, line_range, node_text, node_text_ref, normalize_signature,
 };
 use tree_sitter::{Node, Parser};
 
@@ -21,8 +21,13 @@ impl LanguageParser for JavaParser {
             DefKind::Class,
             DefKind::Interface,
             DefKind::Enum,
-            DefKind::Function,
+            DefKind::Method,
+            DefKind::Constructor,
             DefKind::Const,
+            DefKind::Field,
+            DefKind::Package,
+            DefKind::Variant,
+            DefKind::Annotation,
         ]
     }
 
@@ -98,6 +103,7 @@ fn handle_callable(
     node: Node,
     source: &str,
     mode: &MatchMode,
+    def_kind: DefKind,
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
@@ -105,7 +111,7 @@ fn handle_callable(
         node,
         source,
         mode,
-        DefKind::Function,
+        def_kind,
         |node, source| {
             let raw_sig = if let Some(body) = node.child_by_field_name("body") {
                 flatten_bytes(node.start_byte(), body.start_byte(), source)
@@ -147,18 +153,29 @@ fn is_static_final(node: Node) -> bool {
     has_static && has_final
 }
 
-/// Handle a field_declaration node, extracting static final constants only.
+/// Handle a field_declaration node.
+///
+/// - Static final fields are extracted as Const kind (Java constants).
+/// - All other fields are extracted as Field kind.
 fn handle_field(
     node: Node,
     source: &str,
     mode: &MatchMode,
+    kinds: &[DefKind],
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !is_static_final(node) {
-        return;
+    if is_static_final(node) {
+        if !kinds.contains(&DefKind::Const) {
+            return;
+        }
+        push_declarator_definitions(node, source, mode, results, scope, DefKind::Const);
+    } else {
+        if !kinds.contains(&DefKind::Field) {
+            return;
+        }
+        push_declarator_definitions(node, source, mode, results, scope, DefKind::Field);
     }
-    push_declarator_definitions(node, source, mode, results, scope);
 }
 
 /// Handle a constant_declaration node (interface constants, implicitly public static final).
@@ -169,7 +186,7 @@ fn handle_interface_const(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    push_declarator_definitions(node, source, mode, results, scope);
+    push_declarator_definitions(node, source, mode, results, scope, DefKind::Const);
 }
 
 /// Iterate over variable_declarator children of `node`, pushing a Definition
@@ -180,6 +197,7 @@ fn push_declarator_definitions(
     mode: &MatchMode,
     results: &mut Vec<DefContent>,
     scope: &str,
+    def_kind: DefKind,
 ) {
     let sig = first_line_of_node(node, source);
     let start_row = node.start_position().row + 1;
@@ -201,7 +219,7 @@ fn push_declarator_definitions(
 
         let own_scope = build_scope(scope, ".", name_ref);
         results.push(DefContent {
-            kind: DefKind::Const,
+            kind: def_kind,
             lines: [start, end],
             signature: sig.clone(),
             scope: own_scope,
@@ -244,17 +262,51 @@ fn collect_definitions(
             // Build new scope so inner classes get the enum name.
             recurse_children(node, source, mode, kinds, results, &own_scope);
         }
-        "method_declaration" | "constructor_declaration" => {
-            if kinds.contains(&DefKind::Function) {
-                let callable_scope = build_scope_from_node(node, source, scope, ".");
-                handle_callable(node, source, mode, results, &callable_scope);
+        "enum_constant" => {
+            if kinds.contains(&DefKind::Variant) {
+                handle_enum_constant(node, source, mode, results, scope);
             }
-            // Do not recurse into method/constructor body
+        }
+        "annotation_type_declaration" => {
+            if kinds.contains(&DefKind::Annotation) {
+                handle_annotation_type(node, source, mode, results, scope);
+            }
+            // Recurse into annotation_type_body for nested types
+            if let Some(body) = node.child_by_field_name("body") {
+                let own_scope = build_scope_from_node(node, source, scope, ".");
+                recurse_children(body, source, mode, kinds, results, &own_scope);
+            }
+        }
+        "method_declaration" => {
+            if kinds.contains(&DefKind::Method) {
+                let callable_scope = build_scope_from_node(node, source, scope, ".");
+                handle_callable(
+                    node,
+                    source,
+                    mode,
+                    DefKind::Method,
+                    results,
+                    &callable_scope,
+                );
+            }
+            // Do not recurse into method body
+        }
+        "constructor_declaration" => {
+            if kinds.contains(&DefKind::Constructor) {
+                let callable_scope = build_scope_from_node(node, source, scope, ".");
+                handle_callable(
+                    node,
+                    source,
+                    mode,
+                    DefKind::Constructor,
+                    results,
+                    &callable_scope,
+                );
+            }
+            // Do not recurse into constructor body
         }
         "field_declaration" => {
-            if kinds.contains(&DefKind::Const) {
-                handle_field(node, source, mode, results, scope);
-            }
+            handle_field(node, source, mode, kinds, results, scope);
             // Do not recurse -- field initializers do not contain nested definitions
             // (anonymous class bodies in initializers are intentionally excluded)
         }
@@ -264,8 +316,24 @@ fn collect_definitions(
             }
             // Do not recurse -- interface constants do not contain nested definitions
         }
+        "package_declaration" => {
+            if kinds.contains(&DefKind::Package) {
+                if let Some(name_node) = first_child_by_kind(node, "scoped_identifier") {
+                    let name = node_text(name_node, source);
+                    if mode.matches_ident(&name) {
+                        let signature = normalize_signature(&first_line_of_node(node, source));
+                        results.push(DefContent {
+                            kind: DefKind::Package,
+                            lines: line_range(node.start_position().row + 1, node),
+                            signature,
+                            scope: name,
+                        });
+                    }
+                }
+            }
+        }
         // Skip: not definitions we extract
-        "package_declaration" | "import_declaration" => {}
+        "import_declaration" => {}
         // Recurse into all other nodes (M2 will add specific handlers)
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
@@ -286,6 +354,64 @@ fn recurse_children(
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
     }
+}
+
+/// Handle a Java enum constant (Variant kind).
+fn handle_enum_constant(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+    let name = name_ref.to_string();
+    let own_scope = build_scope(scope, ".", &name);
+    let signature = first_line_of_node(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+    results.push(DefContent {
+        kind: DefKind::Variant,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle a Java annotation type declaration (Annotation kind).
+fn handle_annotation_type(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+    let name = name_ref.to_string();
+    let own_scope = build_scope(scope, ".", &name);
+    let signature = first_line_of_node(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+    results.push(DefContent {
+        kind: DefKind::Annotation,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
 }
 
 #[cfg(test)]
@@ -360,9 +486,13 @@ mod tests {
     #[test]
     fn test_package_and_import_skipped() {
         let src = "package com.example;\nimport java.util.List;\nclass App {}";
-        let pkg = extract_definitions(&JavaParser, "com", DefKind::all(), src);
-        assert!(pkg.is_empty());
+        // Package is now extracted as Package kind, but import is still skipped
+        let pkg = extract_definitions(&JavaParser, "com.example", &[DefKind::Package], src);
+        assert_eq!(pkg.len(), 1);
+        assert_eq!(pkg[0].kind, DefKind::Package);
+        assert_eq!(pkg[0].scope, "com.example");
 
+        // Import is still not extracted
         let imp = extract_definitions(&JavaParser, "List", DefKind::all(), src);
         assert!(imp.is_empty());
 
@@ -371,10 +501,13 @@ mod tests {
     }
 
     #[test]
-    fn test_annotation_type_not_extracted() {
+    fn test_annotation_type_extracted_as_annotation() {
         let src = "@interface MyAnnotation { String value(); }";
-        let results = extract_definitions(&JavaParser, "MyAnnotation", DefKind::all(), src);
-        assert!(results.is_empty());
+        let results = extract_definitions(&JavaParser, "MyAnnotation", &[DefKind::Annotation], src);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Annotation);
+        assert_eq!(results[0].scope, "MyAnnotation");
+        assert!(results[0].signature.contains("@interface MyAnnotation"));
     }
 
     #[test]
@@ -390,7 +523,7 @@ mod tests {
     fn test_multi_line_method_signature() {
         let src =
             "class Foo {\n  @Override\n  public void\n  process(\n    String input\n  ) {}\n}";
-        let results = extract_definitions(&JavaParser, "process", &[DefKind::Function], src);
+        let results = extract_definitions(&JavaParser, "process", &[DefKind::Method], src);
         assert_eq!(results.len(), 1);
         assert!(!results[0].signature.contains('\n'));
         assert!(results[0].signature.contains("@Override"));
@@ -448,11 +581,15 @@ mod tests {
         let results = extract_definitions(
             &JavaParser,
             "Foo",
-            &[DefKind::Function],
+            &[DefKind::Constructor],
             "class Foo { void Foo() {} }",
         );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
+        // "void Foo()" is a method_declaration (has return type void), not constructor_declaration
+        // So it should not match Constructor kind filter
+        assert!(
+            results.is_empty(),
+            "void Foo() is a method (has return type), not a constructor"
+        );
     }
 
     #[test]
@@ -489,7 +626,20 @@ mod tests {
     }
 
     #[test]
-    fn test_enum_constant_not_extracted() {
+    fn test_enum_constant_extracted_as_variant() {
+        let results = extract_definitions(
+            &JavaParser,
+            "RED",
+            &[DefKind::Variant],
+            "enum Color { RED, GREEN, BLUE }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Variant);
+        assert_eq!(results[0].scope, "Color.RED");
+    }
+
+    #[test]
+    fn test_enum_constant_not_extracted_as_const() {
         let results = extract_definitions(
             &JavaParser,
             "RED",
@@ -508,5 +658,105 @@ mod tests {
             "@interface MyAnnotation { String value() default \"\"; }",
         );
         assert!(results.is_empty());
+    }
+
+    // ============================================================
+    // Field extraction tests (non-static-final fields as Field kind)
+    // ============================================================
+
+    #[test]
+    fn plain_field_extracted_as_field() {
+        let results = extract_definitions(
+            &JavaParser,
+            "field",
+            &[DefKind::Field],
+            "class Foo { private int field; }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Field);
+        assert_eq!(results[0].scope, "Foo.field");
+    }
+
+    #[test]
+    fn static_field_extracted_as_field_not_static() {
+        // Static modifier on class fields does NOT make them Static kind (rule 5)
+        let results = extract_definitions(
+            &JavaParser,
+            "count",
+            &[DefKind::Field],
+            "class Foo { static int count = 0; }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Field);
+        assert_eq!(results[0].scope, "Foo.count");
+    }
+
+    #[test]
+    fn final_field_extracted_as_field() {
+        let results = extract_definitions(
+            &JavaParser,
+            "name",
+            &[DefKind::Field],
+            "class Foo { final String name; }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Field);
+    }
+
+    #[test]
+    fn static_final_field_still_const_not_field() {
+        // Static final fields remain Const kind, not Field kind
+        let results = extract_definitions(
+            &JavaParser,
+            "MAX",
+            &[DefKind::Field],
+            "class Foo { static final int MAX = 100; }",
+        );
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn multiple_fields_in_one_declaration() {
+        // `int x, y;` should extract both x and y as separate Field definitions
+        let results = extract_definitions(
+            &JavaParser,
+            "x",
+            &[DefKind::Field],
+            "class Foo { int x, y; }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].scope, "Foo.x");
+
+        let results = extract_definitions(
+            &JavaParser,
+            "y",
+            &[DefKind::Field],
+            "class Foo { int x, y; }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].scope, "Foo.y");
+    }
+
+    #[test]
+    fn field_kind_filter_excludes_class() {
+        let results = extract_definitions(
+            &JavaParser,
+            "field",
+            &[DefKind::Class],
+            "class Foo { private int field; }",
+        );
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn field_in_inner_class() {
+        let results = extract_definitions(
+            &JavaParser,
+            "name",
+            &[DefKind::Field],
+            "class Foo { class Builder { private String name; } }",
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].scope, "Foo.Builder.name");
     }
 }

@@ -3,10 +3,10 @@ use clap::Parser;
 
 /// Short flags that take a value (all others are boolean).
 /// MUST stay in sync with Cli struct fields that have #[arg(short, long)] and take a value.
-const VALUE_SHORT_FLAGS: &[char] = &['k', 'g', 'd', 'e'];
+const VALUE_SHORT_FLAGS: &[char] = &['k', 'g', 'd', 'D', 'e'];
 /// Long flags that take a value (all others are boolean).
 /// MUST stay in sync with Cli struct fields that have #[arg(short, long)] and take a value.
-const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth", "regexp", "path-separator"];
+const VALUE_LONG_FLAGS: &[&str] = &["kind", "glob", "max-depth", "max-scope-depth", "regexp"];
 /// Short flags that are boolean (no value).
 /// MUST stay in sync with Cli struct fields that have #[arg(short)] and no value.
 const BOOLEAN_SHORT_FLAGS: &[char] = &['i', 'S', 'l', 'c', 'w', 'H', 'I', 'M'];
@@ -25,6 +25,8 @@ const BOOLEAN_LONG_FLAGS: &[&str] = &[
     "word-regexp",
     "with-filename",
     "no-filename",
+    "heading",
+    "no-heading",
     "version",
     "help",
 ];
@@ -210,7 +212,11 @@ pub fn reorder_cli_args(args: &[String]) -> Vec<String> {
     version
 )]
 pub struct Cli {
-    /// Definition types to search for (comma-separated: function,class,struct)
+    /// Definition types or categories to search for (comma-separated).
+    /// Categories expand to all members: shape(class,struct,enum,union,record,object,actor),
+    /// callable(function,method,constructor,getter,setter,operator,destructor,subscript),
+    /// value(const,event,field,property,static,variant), contract(interface,protocol,trait,extension,mixin,delegate).
+    /// Standalone kinds: alias, module, macro, namespace, package, annotation.
     #[arg(short = 'k', long = "kind", value_delimiter = ',')]
     kind: Option<Vec<String>>,
 
@@ -246,6 +252,10 @@ pub struct Cli {
     #[arg(short = 'd', long = "max-depth")]
     max_depth: Option<usize>,
 
+    /// Maximum scope path segment depth (1 = top-level only)
+    #[arg(short = 'D', long = "max-scope-depth")]
+    max_scope_depth: Option<usize>,
+
     /// Show results in JSON format (envelope format compatible with ripgrep --json)
     #[arg(long = "json")]
     json: bool,
@@ -266,6 +276,14 @@ pub struct Cli {
     #[arg(short = 'I', long = "no-filename", conflicts_with = "with_filename")]
     no_filename: bool,
 
+    /// Group matches by file, showing the file path once as a heading
+    #[arg(long = "heading", conflicts_with = "no_heading")]
+    heading: bool,
+
+    /// Show file path prefix on every match (default when piped)
+    #[arg(long = "no-heading", conflicts_with = "heading")]
+    no_heading: bool,
+
     /// Glob patterns to filter files (e.g., -g '*.rs', -g '!*.test.rs')
     /// Later globs override earlier globs; '!' prefix negates.
     #[arg(short = 'g', long = "glob")]
@@ -278,10 +296,6 @@ pub struct Cli {
     /// Definition name to search for (supports exact and fuzzy matching)
     /// Optional when -e/--regexp is used.
     pattern: Option<String>,
-
-    /// Set the path separator for file paths in output (e.g., '/' or '\\')
-    #[arg(long = "path-separator")]
-    path_separator: Option<String>,
 
     /// Files or directories to search in (default: current directory)
     #[arg(trailing_var_arg = true)]
@@ -299,8 +313,8 @@ impl Cli {
         &self.regexp
     }
 
-    /// Whether path detection triggered list-all mode (no pattern search).
-    pub fn is_list_all(&self) -> bool {
+    /// Whether path detection triggered survey mode (no pattern search).
+    pub fn is_survey(&self) -> bool {
         if !self.regexp.is_empty() {
             return false;
         }
@@ -346,7 +360,10 @@ impl Cli {
 
     pub fn kinds(&self) -> Vec<DefKind> {
         match &self.kind {
-            Some(tags) => tags.iter().filter_map(|t| DefKind::from_tag(t)).collect(),
+            Some(tags) => tags
+                .iter()
+                .flat_map(|t| DefKind::kinds_from_tag(t))
+                .collect(),
             None => DefKind::all().to_vec(),
         }
     }
@@ -399,6 +416,10 @@ impl Cli {
         self.max_depth
     }
 
+    pub fn max_scope_depth(&self) -> Option<usize> {
+        self.max_scope_depth
+    }
+
     pub fn with_filename(&self) -> bool {
         self.with_filename
     }
@@ -411,12 +432,12 @@ impl Cli {
         self.word
     }
 
-    /// Returns the path separator character, or None if not specified.
-    /// Returns an error if the value is not exactly one byte.
-    pub fn path_separator(&self) -> Option<char> {
-        self.path_separator
-            .as_deref()
-            .and_then(|s| s.chars().next())
+    pub fn heading(&self) -> bool {
+        self.heading
+    }
+
+    pub fn no_heading(&self) -> bool {
+        self.no_heading
     }
 }
 
@@ -513,6 +534,8 @@ mod tests {
         assert!(!cli.no_filename());
         assert!(!cli.word());
         assert!(cli.regexp().is_empty());
+        assert!(!cli.heading());
+        assert!(!cli.no_heading());
     }
 
     #[test]
@@ -703,6 +726,24 @@ mod tests {
     }
 
     #[test]
+    fn max_scope_depth_short() {
+        let cli = Cli::try_parse_from(["peek", "-D", "2", "foo"]).unwrap();
+        assert_eq!(cli.max_scope_depth(), Some(2));
+    }
+
+    #[test]
+    fn max_scope_depth_long() {
+        let cli = Cli::try_parse_from(["peek", "--max-scope-depth", "3", "foo"]).unwrap();
+        assert_eq!(cli.max_scope_depth(), Some(3));
+    }
+
+    #[test]
+    fn max_scope_depth_default_is_none() {
+        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
+        assert_eq!(cli.max_scope_depth(), None);
+    }
+
+    #[test]
     fn combined_flags_with_existing() {
         let cli = Cli::try_parse_from([
             "peek", "-l", "-k", "class", "-g", "*.rs", "--hidden", "Config",
@@ -776,6 +817,27 @@ mod tests {
     #[test]
     fn reject_both_with_and_no_filename() {
         assert!(Cli::try_parse_from(["peek", "-H", "-I", "foo"]).is_err());
+    }
+
+    // --- --heading / --no-heading flags ---
+
+    #[test]
+    fn heading_long() {
+        let cli = Cli::try_parse_from(["peek", "--heading", "foo"]).unwrap();
+        assert!(cli.heading());
+        assert!(!cli.no_heading());
+    }
+
+    #[test]
+    fn no_heading_long() {
+        let cli = Cli::try_parse_from(["peek", "--no-heading", "foo"]).unwrap();
+        assert!(!cli.heading());
+        assert!(cli.no_heading());
+    }
+
+    #[test]
+    fn reject_both_heading_and_no_heading() {
+        assert!(Cli::try_parse_from(["peek", "--heading", "--no-heading", "foo"]).is_err());
     }
 
     // --- --word-regexp flag ---
@@ -1186,35 +1248,6 @@ mod tests {
         assert_eq!(cli.globs(), &["-*.test.rs".to_string()]);
     }
 
-    // --- --path-separator flag ---
-
-    #[test]
-    fn path_separator_forward_slash() {
-        let cli = Cli::try_parse_from(["peek", "--path-separator", "/", "foo"]).unwrap();
-        assert_eq!(cli.path_separator(), Some('/'));
-    }
-
-    #[test]
-    fn path_separator_backslash() {
-        let cli = Cli::try_parse_from(["peek", "--path-separator", "\\", "foo"]).unwrap();
-        assert_eq!(cli.path_separator(), Some('\\'));
-    }
-
-    #[test]
-    fn path_separator_not_set_defaults_to_none() {
-        let cli = Cli::try_parse_from(["peek", "foo"]).unwrap();
-        assert_eq!(cli.path_separator(), None);
-    }
-
-    #[test]
-    fn reorder_path_separator_after_files() {
-        let args = args_from(&["peek", "my_func", "src/", "--path-separator", "/"]);
-        assert_eq!(
-            reorder_cli_args(&args),
-            args_from(&["peek", "--path-separator", "/", "my_func", "src/"])
-        );
-    }
-
     #[test]
     fn reorder_end_to_end_dash_prefixed_regexp() {
         let args = args_from(&["peek", "src/", "-e", "-pattern"]);
@@ -1352,10 +1385,10 @@ mod tests {
     // looks like a path (no -e flag present).
 
     #[test]
-    fn disambig_single_path_becomes_listall() {
-        // peek src/ → list-all src/
+    fn disambig_single_path_becomes_survey() {
+        // peek src/ → survey src/
         let cli = Cli::try_parse_from(["peek", "src/"]).unwrap();
-        assert!(cli.is_list_all());
+        assert!(cli.is_survey());
         assert!(cli.collect_patterns().is_empty());
         assert_eq!(cli.files(), &["src/".to_string()]);
     }
@@ -1364,19 +1397,19 @@ mod tests {
     fn disambig_dot_is_pattern() {
         // peek . → . is a regex pattern (match any char), not a path
         let cli = Cli::try_parse_from(["peek", "."]).unwrap();
-        assert!(!cli.is_list_all());
+        assert!(!cli.is_survey());
         assert_eq!(cli.collect_patterns(), vec![".".to_string()]);
         assert!(cli.files().is_empty());
     }
 
     #[test]
-    fn disambig_ext_existing_file_becomes_listall() {
-        // peek main.rs (existing) → list-all main.rs
+    fn disambig_ext_existing_file_becomes_survey() {
+        // peek main.rs (existing) → survey main.rs
         let tid = format!("{:?}", std::thread::current().id());
         let filename = format!("peek_test_disambig_{}.rs", tid);
         std::fs::write(&filename, "").unwrap();
         let cli = Cli::try_parse_from(["peek", &filename]).unwrap();
-        assert!(cli.is_list_all());
+        assert!(cli.is_survey());
         assert!(cli.collect_patterns().is_empty());
         assert_eq!(cli.files(), std::slice::from_ref(&filename));
         std::fs::remove_file(&filename).ok();
@@ -1386,26 +1419,26 @@ mod tests {
     fn disambig_ext_nonexistent_file_is_pattern() {
         // peek myfunc.py (non-existent) → pattern search for "myfunc.py"
         let cli = Cli::try_parse_from(["peek", "myfunc.py"]).unwrap();
-        assert!(!cli.is_list_all());
+        assert!(!cli.is_survey());
         assert_eq!(cli.collect_patterns(), vec!["myfunc.py".to_string()]);
         assert!(cli.files().is_empty());
     }
 
     #[test]
     fn disambig_path_with_extra_files() {
-        // peek src/ lib/ → list-all src/ + lib/
+        // peek src/ lib/ → survey src/ + lib/
         let cli = Cli::try_parse_from(["peek", "src/", "lib/"]).unwrap();
-        assert!(cli.is_list_all());
+        assert!(cli.is_survey());
         assert!(cli.collect_patterns().is_empty());
         assert_eq!(cli.files(), &["src/".to_string(), "lib/".to_string()]);
     }
 
     #[test]
     fn disambig_dot_with_kind_is_pattern() {
-        // peek . -k function → . is a regex pattern, not list-all
+        // peek . -k function → . is a regex pattern, not survey
         let args = args_from(&["peek", ".", "-k", "function"]);
         let cli = Cli::try_parse_from(reorder_cli_args(&args)).unwrap();
-        assert!(!cli.is_list_all());
+        assert!(!cli.is_survey());
         assert_eq!(cli.collect_patterns(), vec![".".to_string()]);
         assert!(cli.files().is_empty());
         assert_eq!(cli.kinds(), vec![DefKind::Function]);
@@ -1431,7 +1464,7 @@ mod tests {
     fn disambig_three_dots_is_pattern() {
         // peek ... → treated as regular pattern (regex "..." matches any 3 chars)
         let cli = Cli::try_parse_from(["peek", "..."]).unwrap();
-        assert!(!cli.is_list_all());
+        assert!(!cli.is_survey());
         assert_eq!(cli.collect_patterns(), vec!["...".to_string()]);
         assert!(cli.files().is_empty());
     }
@@ -1440,7 +1473,7 @@ mod tests {
     fn disambig_dot_with_files_is_pattern() {
         // peek . app.py → . is pattern, app.py is file
         let cli = Cli::try_parse_from(["peek", ".", "app.py"]).unwrap();
-        assert!(!cli.is_list_all());
+        assert!(!cli.is_survey());
         assert_eq!(cli.collect_patterns(), vec![".".to_string()]);
         assert_eq!(cli.files(), &["app.py".to_string()]);
     }
@@ -1449,7 +1482,7 @@ mod tests {
     fn disambig_dotdot_with_files_is_pattern() {
         // peek .. app.py → .. is pattern, app.py is file
         let cli = Cli::try_parse_from(["peek", "..", "app.py"]).unwrap();
-        assert!(!cli.is_list_all());
+        assert!(!cli.is_survey());
         assert_eq!(cli.collect_patterns(), vec!["..".to_string()]);
         assert_eq!(cli.files(), &["app.py".to_string()]);
     }

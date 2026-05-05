@@ -6,14 +6,14 @@ use common::{parse_defs, peek};
 
 #[test]
 fn peek_for_ruby_singleton_method() {
-    let output = peek(&["-k", "function", "find_by_email", "tests/fixtures/ruby"]);
+    let output = peek(&["-k", "method", "find_by_email", "tests/fixtures/ruby"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "MyApp::Models::User::find_by_email" && r.kind == "function")
+            .any(|r| r.scope == "MyApp::Models::User::find_by_email" && r.kind == "method")
     );
 }
 
@@ -45,14 +45,14 @@ fn peek_for_ruby_class_in_module_scope() {
 
 #[test]
 fn peek_for_ruby_method_scope() {
-    let output = peek(&["-k", "function", "display_name", "tests/fixtures/ruby"]);
+    let output = peek(&["-k", "method", "display_name", "tests/fixtures/ruby"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "MyApp::Models::User::display_name" && r.kind == "function")
+            .any(|r| r.scope == "MyApp::Models::User::display_name" && r.kind == "method")
     );
 }
 
@@ -159,14 +159,14 @@ fn peek_for_ruby_top_level_const() {
 
 #[test]
 fn peek_for_ruby_top_level_function() {
-    let output = peek(&["-k", "function", "global_helper", "tests/fixtures/ruby"]);
+    let output = peek(&["-k", "method", "global_helper", "tests/fixtures/ruby"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "global_helper" && r.kind == "function")
+            .any(|r| r.scope == "global_helper" && r.kind == "method")
     );
 }
 

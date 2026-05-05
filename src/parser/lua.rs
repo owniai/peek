@@ -17,7 +17,7 @@ impl LanguageParser for LuaParser {
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
-        &[DefKind::Function]
+        &[DefKind::Function, DefKind::Method]
     }
 
     impl_init_parser!(tree_sitter_lua::LANGUAGE, "Lua");
@@ -82,13 +82,20 @@ fn handle_function(
 
     let own_scope = build_scope(scope, ".", &full_path);
 
-    if kinds.contains(&DefKind::Function) && mode.matches_ident(&final_name) {
+    // Determine kind based on name node type: colon syntax → Method, otherwise → Function
+    let def_kind = if name_node.kind() == "method_index_expression" {
+        DefKind::Method
+    } else {
+        DefKind::Function
+    };
+
+    if kinds.contains(&def_kind) && mode.matches_ident(&final_name) {
         let signature = extract_lua_signature(node, source);
         let start_row = node.start_position().row + 1;
         let [start, end] = line_range(start_row, node);
 
         results.push(DefContent {
-            kind: DefKind::Function,
+            kind: def_kind,
             lines: [start, end],
             signature,
             scope: own_scope.clone(),
@@ -242,8 +249,9 @@ function MyClass:greet()
     return "hello"
 end
 "#;
-        let defs = extract_definitions(&LuaParser, "greet", &[DefKind::Function], source);
+        let defs = extract_definitions(&LuaParser, "greet", &[DefKind::Method], source);
         assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Method);
         assert_eq!(defs[0].signature, "function MyClass:greet()");
     }
 }

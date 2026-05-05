@@ -13,7 +13,8 @@ pub struct DefLine {
 }
 
 static DEF_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:(?:[A-Za-z]:[^:]+|[^:]+):)?(\d+)-(\d+) \[(\w+)/([^\]]+)\](?: (.*))?").unwrap()
+    Regex::new(r"(?:(?:[A-Za-z]:[^:]+|[^:]+):)?(\d+)(?:-(\d+))? \[(\w+)/([^\]]+)\](?: (.*))?")
+        .unwrap()
 });
 
 /// Run peek binary with given arguments.
@@ -40,6 +41,11 @@ pub fn parse_defs(stdout: &str) -> Vec<DefLine> {
         .lines()
         .filter_map(|line| {
             let caps = DEF_LINE_RE.captures(line)?;
+            let start: usize = caps[1].parse().ok()?;
+            let end: usize = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(start);
             Some(DefLine {
                 kind: caps[3].to_string(),
                 scope: caps[4].to_string(),
@@ -47,8 +53,8 @@ pub fn parse_defs(stdout: &str) -> Vec<DefLine> {
                     .get(5)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default(),
-                start: caps[1].parse().ok()?,
-                end: caps[2].parse().ok()?,
+                start,
+                end,
             })
         })
         .collect()

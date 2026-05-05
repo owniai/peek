@@ -6,53 +6,53 @@ use common::{parse_defs, peek};
 
 #[test]
 fn peek_for_dart_class_method_scope() {
-    let output = peek(&["-k", "function", "greet", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "method", "greet", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "UserService.greet" && r.kind == "function")
+            .any(|r| r.scope == "UserService.greet" && r.kind == "method")
     );
 }
 
 #[test]
 fn peek_for_dart_getter_scope() {
-    let output = peek(&["-k", "function", "displayName", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "getter", "displayName", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "UserService.displayName" && r.kind == "function")
+            .any(|r| r.scope == "UserService.displayName" && r.kind == "getter")
     );
 }
 
 #[test]
 fn peek_for_dart_mixin_method_scope() {
-    let output = peek(&["-k", "function", "log", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "method", "log", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "Loggable.log" && r.kind == "function")
+            .any(|r| r.scope == "Loggable.log" && r.kind == "method")
     );
 }
 
 #[test]
 fn peek_for_dart_extension_method_scope() {
-    let output = peek(&["-k", "function", "repeated", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "method", "repeated", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "StringExt.repeated" && r.kind == "function")
+            .any(|r| r.scope == "StringExt.repeated" && r.kind == "method")
     );
 }
 
@@ -183,14 +183,14 @@ fn peek_for_dart_extension() {
 
 #[test]
 fn peek_for_dart_typedef() {
-    let output = peek(&["-k", "type", "Callback", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "alias", "Callback", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "Callback" && r.kind == "type")
+            .any(|r| r.scope == "Callback" && r.kind == "alias")
     );
 }
 
@@ -228,7 +228,7 @@ fn peek_for_dart_top_level_const() {
 #[test]
 fn peek_for_dart_class_method_end_line() {
     // greet spans lines 29-31 in the fixture
-    let output = peek(&["-k", "function", "greet", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "method", "greet", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -246,7 +246,7 @@ fn peek_for_dart_class_method_end_line() {
 #[test]
 fn peek_for_dart_single_line_functions_unchanged() {
     // Single-line and abstract definitions should have start == end
-    let output = peek(&["-k", "function", "tests/fixtures/dart"]);
+    let output = peek(&["-k", "callable", "tests/fixtures/dart"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
@@ -293,5 +293,60 @@ fn peek_for_dart_function_body_func_not_extracted() {
         output.status.code(),
         Some(1),
         "Expected no results for function-body function"
+    );
+}
+
+// === Dart Field tests ===
+
+#[test]
+fn peek_for_dart_class_field() {
+    // Product.id is a class field
+    let output = peek(&["-k", "field", "id", "tests/fixtures/dart"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "Product.id" && r.kind == "field"),
+        "expected field Product.id, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_dart_final_field() {
+    // final String name in UserService -> Field
+    let output = peek(&["-k", "field", "name", "tests/fixtures/dart"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "UserService.name" && r.kind == "field"),
+        "expected field UserService.name, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_dart_field_not_const() {
+    // Product.id should not appear as const
+    let output = peek(&["-k", "const", "id", "tests/fixtures/dart"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "field should not match -k const"
+    );
+}
+
+#[test]
+fn peek_for_dart_value_category_includes_field() {
+    let output = peek(&["-k", "value", "label", "tests/fixtures/dart"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results.iter().any(|r| r.scope == "Product.label"),
+        "expected Product.label in value category, got: {results:?}"
     );
 }

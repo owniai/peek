@@ -1,7 +1,7 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
     LanguageParser, MatchMode, build_scope, build_scope_from_node, first_child_by_kind,
-    first_line_of_node, flatten_bytes, line_range, node_text_ref, normalize_signature,
+    first_line_of_node, flatten_bytes, line_range, node_text, node_text_ref, normalize_signature,
 };
 use tree_sitter::{Node, Parser};
 
@@ -22,15 +22,34 @@ impl LanguageParser for KotlinParser {
             DefKind::Interface,
             DefKind::Enum,
             DefKind::Function,
+            DefKind::Method,
+            DefKind::Constructor,
             DefKind::Object,
-            DefKind::Type,
+            DefKind::Alias,
             DefKind::Const,
+            DefKind::Property,
+            DefKind::Package,
+            DefKind::Variant,
         ]
     }
 
     impl_init_parser!(tree_sitter_kotlin_ng::LANGUAGE, "Kotlin");
 
-    impl_extract_with!(collect_definitions, scope: "");
+    fn extract_with(
+        &self,
+        mode: &MatchMode,
+        kinds: &[DefKind],
+        source: &str,
+        parser: &mut Parser,
+    ) -> Result<Vec<DefContent>, ()> {
+        let tree = match parser.parse(source, None) {
+            Some(t) => t,
+            None => return Err(()),
+        };
+        let mut results = Vec::new();
+        collect_definitions(tree.root_node(), source, mode, kinds, &mut results, "");
+        Ok(results)
+    }
 }
 
 /// Classify a `class_declaration` node as Class, Interface, or Enum.
@@ -187,8 +206,9 @@ fn handle_function(
     kinds: &[DefKind],
     results: &mut Vec<DefContent>,
     scope: &str,
+    def_kind: DefKind,
 ) {
-    if !kinds.contains(&DefKind::Function) {
+    if !kinds.contains(&def_kind) {
         return;
     }
 
@@ -217,7 +237,7 @@ fn handle_function(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: def_kind,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -236,7 +256,7 @@ fn handle_typealias(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Type) {
+    if !kinds.contains(&DefKind::Alias) {
         return;
     }
 
@@ -258,7 +278,7 @@ fn handle_typealias(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Type,
+        kind: DefKind::Alias,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -334,6 +354,244 @@ fn is_const_property(node: Node, source: &str) -> bool {
     false
 }
 
+/// Handle a non-const property_declaration in class body as Property kind.
+fn handle_body_property(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    // Extract name from variable_declaration -> identifier
+    let var_decl = match first_child_by_kind(node, "variable_declaration") {
+        Some(vd) => vd,
+        None => return,
+    };
+    let name_node = match first_child_by_kind(var_decl, "identifier") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Property,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Extract primary_constructor from a class_declaration node.
+///
+/// primary_constructor is a child of class_declaration (not inside class_body).
+/// Name is the class name (constructor has no separate name field).
+/// Also extracts class_parameter nodes with val/var as Property.
+fn extract_primary_constructor(
+    class_node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let want_ctor = kinds.contains(&DefKind::Constructor);
+    let want_prop = kinds.contains(&DefKind::Property);
+
+    if !want_ctor && !want_prop {
+        return;
+    }
+
+    // Find primary_constructor child
+    let mut cursor = class_node.walk();
+    let pc_node = match class_node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "primary_constructor")
+    {
+        Some(n) => n,
+        None => return,
+    };
+
+    // Extract class_parameter with val/var as Property
+    if want_prop {
+        let class_own_scope = build_scope_from_node(class_node, source, scope, ".");
+        extract_class_parameters(&pc_node, source, mode, results, &class_own_scope);
+    }
+
+    if !want_ctor {
+        return;
+    }
+
+    // Name is the class name
+    let name_node = match class_node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let class_name = node_text_ref(name_node, source);
+
+    if !mode.matches_ident(class_name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", class_name);
+    let start_row = pc_node.start_position().row + 1;
+    let end_row = pc_node.end_position().row + 1;
+    let sig = flatten_bytes(pc_node.start_byte(), pc_node.end_byte(), source)
+        .unwrap_or_else(|| first_line_of_node(pc_node, source));
+    let signature = normalize_signature(&sig);
+
+    results.push(DefContent {
+        kind: DefKind::Constructor,
+        lines: [start_row as u32, end_row as u32],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Extract class_parameter nodes with val/var from a primary_constructor as Property.
+fn extract_class_parameters(
+    pc_node: &Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let mut cursor = pc_node.walk();
+    for child in pc_node.children(&mut cursor) {
+        if child.kind() != "class_parameters" {
+            continue;
+        }
+        let mut cp_cursor = child.walk();
+        for cp in child.children(&mut cp_cursor) {
+            if cp.kind() != "class_parameter" {
+                continue;
+            }
+            // Check if parameter has val/var (unnamed literal child)
+            let has_val_var = cp
+                .children(&mut cp.walk())
+                .any(|c| !c.is_named() && (c.kind() == "val" || c.kind() == "var"));
+            if !has_val_var {
+                continue;
+            }
+            // Extract name: first identifier child
+            let name_node = match cp
+                .children(&mut cp.walk())
+                .find(|c| c.kind() == "identifier")
+            {
+                Some(n) => n,
+                None => continue,
+            };
+            let name_ref = node_text_ref(name_node, source);
+            if !mode.matches_ident(name_ref) {
+                continue;
+            }
+            let own_scope = build_scope(scope, ".", name_ref);
+            let sig = first_line_of_node(cp, source);
+            let signature = normalize_signature(&sig);
+            let start_row = cp.start_position().row + 1;
+            let [start, end] = line_range(start_row, cp);
+
+            results.push(DefContent {
+                kind: DefKind::Property,
+                lines: [start, end],
+                signature,
+                scope: own_scope,
+            });
+        }
+    }
+}
+
+/// Handle a secondary_constructor node.
+///
+/// secondary_constructor is inside class_body. Name is derived from scope
+/// (the containing class name).
+fn handle_secondary_constructor(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Constructor) {
+        return;
+    }
+
+    // Extract class name from scope (last segment after '.')
+    let class_name = scope.rsplit('.').next().unwrap_or("");
+    if class_name.is_empty() {
+        return;
+    }
+
+    if !mode.matches_ident(class_name) {
+        return;
+    }
+
+    // Scope is already the class scope (e.g. "Person"), set by handle_class's recurse_children.
+    // Both constructors share the class scope -- no additional nesting.
+    let start_row = node.start_position().row + 1;
+    let end_row = node.end_position().row + 1;
+    let sig = if let Some(body) = first_child_by_kind(node, "function_body") {
+        flatten_bytes(node.start_byte(), body.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else if let Some(params) = first_child_by_kind(node, "class_parameters") {
+        flatten_bytes(node.start_byte(), params.end_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        first_line_of_node(node, source)
+    };
+    let signature = normalize_signature(&sig);
+
+    results.push(DefContent {
+        kind: DefKind::Constructor,
+        lines: [start_row as u32, end_row as u32],
+        signature,
+        scope: scope.to_string(),
+    });
+}
+
+/// Handle an enum_entry node (Kotlin enum variant).
+/// enum_entry has a "name" field returning a simple_identifier.
+/// Scope uses "." separator: e.g., "Color.RED".
+fn handle_enum_entry(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Variant,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
 /// Recursively walk the AST, dispatching to type-specific handlers.
 fn collect_definitions(
     node: Node,
@@ -347,25 +605,59 @@ fn collect_definitions(
         "class_declaration" => {
             let def_kind = classify_class_declaration(node, source);
             handle_class(node, source, mode, def_kind, kinds, results, scope);
+            // Extract primary_constructor if present (child of class_declaration)
+            extract_primary_constructor(node, source, mode, kinds, results, scope);
         }
         "object_declaration" | "companion_object" => {
             handle_object(node, source, mode, kinds, results, scope);
         }
         "function_declaration" => {
-            handle_function(node, source, mode, kinds, results, scope);
+            // Scope-based: if inside a class/object body (!scope.is_empty()), emit Method
+            let def_kind = if scope.is_empty() {
+                DefKind::Function
+            } else {
+                DefKind::Method
+            };
+            handle_function(node, source, mode, kinds, results, scope, def_kind);
             // Do not recurse into function body
+        }
+        "secondary_constructor" => {
+            handle_secondary_constructor(node, source, mode, kinds, results, scope);
         }
         "type_alias" => {
             handle_typealias(node, source, mode, kinds, results, scope);
         }
         "property_declaration" => {
-            handle_const(node, source, mode, kinds, results, scope);
+            if is_const_property(node, source) {
+                handle_const(node, source, mode, kinds, results, scope);
+            } else if kinds.contains(&DefKind::Property) {
+                handle_body_property(node, source, mode, results, scope);
+            }
             // Do not recurse -- property initializers do not contain nested definitions
         }
-        // Skip: package and import are not definitions
-        "package_header" | "import" => {}
-        // Skip: secondary_constructor has no name field
-        "secondary_constructor" => {}
+        "package_header" => {
+            if kinds.contains(&DefKind::Package) {
+                if let Some(name_node) = first_child_by_kind(node, "qualified_identifier") {
+                    let name = node_text(name_node, source);
+                    if mode.matches_ident(&name) {
+                        let signature = normalize_signature(&first_line_of_node(node, source));
+                        results.push(DefContent {
+                            kind: DefKind::Package,
+                            lines: line_range(node.start_position().row + 1, node),
+                            signature,
+                            scope: name,
+                        });
+                    }
+                }
+            }
+        }
+        // Skip: import is not a definition
+        "import" => {}
+        "enum_entry" => {
+            if kinds.contains(&DefKind::Variant) {
+                handle_enum_entry(node, source, mode, results, scope);
+            }
+        }
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
         }
@@ -403,14 +695,14 @@ class MyClass {
     }
 }
 "#;
-        let defs = extract_definitions(&KotlinParser, "create", &[DefKind::Function], source);
+        let defs = extract_definitions(&KotlinParser, "create", &[DefKind::Method], source);
         assert_eq!(
             defs.len(),
             1,
-            "should find function inside unnamed companion object, but got {} results",
+            "should find method inside unnamed companion object, but got {} results",
             defs.len()
         );
-        assert_eq!(defs[0].kind, DefKind::Function);
+        assert_eq!(defs[0].kind, DefKind::Method);
         assert!(defs[0].signature.contains("fun create"));
     }
 
@@ -443,11 +735,11 @@ class MyClass {
     }
 }
 "#;
-        let defs = extract_definitions(&KotlinParser, "create", &[DefKind::Function], source);
+        let defs = extract_definitions(&KotlinParser, "create", &[DefKind::Method], source);
         assert_eq!(
             defs.len(),
             1,
-            "should find function inside named companion object"
+            "should find method inside named companion object"
         );
         assert_eq!(defs[0].scope, "MyClass.Factory.create");
     }

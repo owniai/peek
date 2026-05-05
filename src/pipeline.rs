@@ -25,6 +25,7 @@ pub struct SearchOptions {
     pub hidden: bool,
     pub no_ignore: bool,
     pub max_depth: Option<usize>,
+    pub max_scope_depth: Option<usize>,
 }
 
 pub fn search(
@@ -203,7 +204,12 @@ pub fn search(
                                         file: path_buf.clone(),
                                         defs,
                                     };
-                                    filter_file_defs(&mut file_defs, modes, kinds);
+                                    filter_file_defs(
+                                        &mut file_defs,
+                                        modes,
+                                        kinds,
+                                        options.max_scope_depth,
+                                    );
                                     cache_events.lock().unwrap().push((
                                         cache_entry.path_hash(),
                                         CacheEvent::Hit(cache_entry),
@@ -235,7 +241,7 @@ pub fn search(
                                 file: path_buf.clone(),
                                 defs: defs.clone(),
                             };
-                            filter_file_defs(&mut file_defs, modes, kinds);
+                            filter_file_defs(&mut file_defs, modes, kinds, options.max_scope_depth);
                             let event = file_meta
                                 .as_ref()
                                 .and_then(|m| cache::mtime_millis(m).map(|t| (t, m.len())))
@@ -291,7 +297,7 @@ pub fn search(
                             file: path_buf.clone(),
                             defs: defs.clone(),
                         };
-                        filter_file_defs(&mut file_defs, modes, kinds);
+                        filter_file_defs(&mut file_defs, modes, kinds, options.max_scope_depth);
                         if let (Some(ph_val), Some(mtime)) = (ph, file_mtime) {
                             cache_events.lock().unwrap().push((
                                 ph_val,
@@ -381,10 +387,33 @@ pub fn search(
 
 /// Filter definitions within a FileDefs by kinds and match mode.
 /// Retains matching definitions in place; does not remove the FileDefs even if empty.
-fn filter_file_defs(file_defs: &mut FileDefs, modes: &[MatchMode], kinds: &[DefKind]) {
-    file_defs
-        .defs
-        .retain(|d| kinds.contains(&d.kind) && modes.iter().any(|m| m.matches_ident(&d.scope)));
+fn filter_file_defs(
+    file_defs: &mut FileDefs,
+    modes: &[MatchMode],
+    kinds: &[DefKind],
+    max_scope_depth: Option<usize>,
+) {
+    file_defs.defs.retain(|d| {
+        kinds.contains(&d.kind)
+            && modes.iter().any(|m| m.matches_ident(&d.scope))
+            && max_scope_depth.is_none_or(|max| scope_depth(&d.scope) <= max)
+    });
+}
+
+fn scope_depth(scope: &str) -> usize {
+    let mut depth = 1;
+    let mut chars = scope.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '.' | '\\' => depth += 1,
+            ':' if chars.peek() == Some(&':') => {
+                chars.next();
+                depth += 1;
+            }
+            _ => {}
+        }
+    }
+    depth
 }
 
 #[cfg(test)]
@@ -561,7 +590,7 @@ mod tests {
                 scope: "c".into(),
             },
         ]);
-        filter_file_defs(&mut fd, &[MatchMode::All], &[DefKind::Function]);
+        filter_file_defs(&mut fd, &[MatchMode::All], &[DefKind::Function], None);
         assert_eq!(fd.defs.len(), 2);
         assert!(fd.defs.iter().all(|d| d.kind == DefKind::Function));
     }
@@ -583,7 +612,7 @@ mod tests {
             },
         ]);
         let mode = MatchMode::from_user_input("foo", false, false).unwrap();
-        filter_file_defs(&mut fd, &[mode], &[DefKind::Function]);
+        filter_file_defs(&mut fd, &[mode], &[DefKind::Function], None);
         assert_eq!(fd.defs.len(), 1);
         assert_eq!(fd.defs[0].scope, "foo");
     }
@@ -605,7 +634,7 @@ mod tests {
             },
         ]);
         let mode = MatchMode::from_user_input("method", false, false).unwrap();
-        filter_file_defs(&mut fd, &[mode], DefKind::all());
+        filter_file_defs(&mut fd, &[mode], DefKind::all(), None);
         assert_eq!(fd.defs.len(), 2);
     }
 
@@ -626,7 +655,7 @@ mod tests {
             },
         ]);
         let mode = MatchMode::from_user_input("foo", false, false).unwrap();
-        filter_file_defs(&mut fd, &[mode], &[DefKind::Function]);
+        filter_file_defs(&mut fd, &[mode], &[DefKind::Function], None);
         assert_eq!(fd.defs.len(), 1);
         assert_eq!(fd.defs[0].kind, DefKind::Function);
     }
@@ -648,7 +677,7 @@ mod tests {
             },
         ]);
         let mode = MatchMode::from_user_input("Engine::start", false, false).unwrap();
-        filter_file_defs(&mut fd, &[mode], DefKind::all());
+        filter_file_defs(&mut fd, &[mode], DefKind::all(), None);
         assert_eq!(fd.defs.len(), 1);
         assert_eq!(fd.defs[0].scope, "Engine::start");
     }
@@ -662,7 +691,7 @@ mod tests {
             scope: "Engine::start".into(),
         }]);
         let mode = MatchMode::from_user_input("start", false, false).unwrap();
-        filter_file_defs(&mut fd, &[mode], DefKind::all());
+        filter_file_defs(&mut fd, &[mode], DefKind::all(), None);
         assert_eq!(fd.defs.len(), 1);
     }
 
@@ -683,7 +712,7 @@ mod tests {
             },
         ]);
         let mode = MatchMode::from_user_input("Class", false, false).unwrap();
-        filter_file_defs(&mut fd, &[mode], DefKind::all());
+        filter_file_defs(&mut fd, &[mode], DefKind::all(), None);
         assert_eq!(fd.defs.len(), 2);
     }
 
@@ -715,7 +744,7 @@ mod tests {
             MatchMode::from_user_input("foo", false, false).unwrap(),
             MatchMode::from_user_input("bar", false, false).unwrap(),
         ];
-        filter_file_defs(&mut fd, &modes, DefKind::all());
+        filter_file_defs(&mut fd, &modes, DefKind::all(), None);
         assert_eq!(fd.defs.len(), 2);
         assert_eq!(fd.defs[0].scope, "foo");
         assert_eq!(fd.defs[1].scope, "bar");
@@ -741,7 +770,7 @@ mod tests {
             MatchMode::from_user_input("nonexistent", false, false).unwrap(),
             MatchMode::All,
         ];
-        filter_file_defs(&mut fd, &modes, DefKind::all());
+        filter_file_defs(&mut fd, &modes, DefKind::all(), None);
         assert_eq!(fd.defs.len(), 2);
     }
 
@@ -754,7 +783,7 @@ mod tests {
             scope: "foo".into(),
         }]);
         let modes: Vec<MatchMode> = vec![];
-        filter_file_defs(&mut fd, &modes, DefKind::all());
+        filter_file_defs(&mut fd, &modes, DefKind::all(), None);
         assert!(fd.defs.is_empty());
     }
 
@@ -782,10 +811,92 @@ mod tests {
         ]);
         let regex_mode = MatchMode::from_user_input("bar.*", false, false).unwrap();
         let simple_mode = MatchMode::from_user_input("foo", false, false).unwrap();
-        filter_file_defs(&mut fd, &[simple_mode, regex_mode], DefKind::all());
+        filter_file_defs(&mut fd, &[simple_mode, regex_mode], DefKind::all(), None);
         assert_eq!(fd.defs.len(), 2);
         assert_eq!(fd.defs[0].scope, "foo");
         assert_eq!(fd.defs[1].scope, "bar_baz");
+    }
+
+    // --- Scope depth filtering ---
+
+    #[test]
+    fn scope_depth_counts_dot_separators() {
+        assert_eq!(scope_depth("MyClass"), 1);
+        assert_eq!(scope_depth("MyClass.method"), 2);
+        assert_eq!(scope_depth("Foo.bar.baz"), 3);
+    }
+
+    #[test]
+    fn scope_depth_counts_double_colon_separators() {
+        assert_eq!(scope_depth("foo"), 1);
+        assert_eq!(scope_depth("Foo::bar"), 2);
+        assert_eq!(scope_depth("A::B::C"), 3);
+    }
+
+    #[test]
+    fn scope_depth_counts_backslash_separators() {
+        assert_eq!(scope_depth("User"), 1);
+        assert_eq!(scope_depth(r"App\Models\User"), 3);
+    }
+
+    #[test]
+    fn filter_by_max_scope_depth() {
+        let mut fd = make_fd(vec![
+            DefContent {
+                kind: DefKind::Function,
+                lines: [1, 1],
+                signature: "fn top".into(),
+                scope: "top".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [2, 2],
+                signature: "fn nested".into(),
+                scope: "MyClass.nested".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [3, 3],
+                signature: "fn deep".into(),
+                scope: "A.B.C.deep".into(),
+            },
+        ]);
+        filter_file_defs(&mut fd, &[MatchMode::All], DefKind::all(), Some(2));
+        assert_eq!(fd.defs.len(), 2);
+        assert!(fd.defs.iter().all(|d| scope_depth(&d.scope) <= 2));
+    }
+
+    #[test]
+    fn filter_by_max_scope_depth_none_passes_all() {
+        let mut fd = make_fd(vec![DefContent {
+            kind: DefKind::Function,
+            lines: [1, 1],
+            signature: "fn a".into(),
+            scope: "A.B.C.D".into(),
+        }]);
+        filter_file_defs(&mut fd, &[MatchMode::All], DefKind::all(), None);
+        assert_eq!(fd.defs.len(), 1);
+    }
+
+    #[test]
+    fn filter_by_max_scope_depth_one_keeps_only_toplevel() {
+        let mut fd = make_fd(vec![
+            DefContent {
+                kind: DefKind::Function,
+                lines: [1, 1],
+                signature: "fn top".into(),
+                scope: "top".into(),
+            },
+            DefContent {
+                kind: DefKind::Function,
+                lines: [2, 2],
+                signature: "fn inner".into(),
+                scope: "MyClass.inner".into(),
+            },
+        ]);
+        filter_file_defs(&mut fd, &[MatchMode::All], DefKind::all(), Some(1));
+        assert_eq!(fd.defs.len(), 1);
+        assert_eq!(fd.defs[0].scope, "top");
     }
 
     // --- Cache integration ---
@@ -909,13 +1020,13 @@ mod tests {
     // Pipeline-level migration depends on write_cache success and cannot be reliably
     // tested here due to parallel test interference on the shared .peek-cache directory.
 
-    // --- Cache hit with All mode (list-all) ---
+    // --- Cache hit with All mode (survey) ---
 
     #[test]
     fn cache_hit_with_all_mode_produces_correct_results() {
         let reg = build_registry();
 
-        // First search with MatchMode::All (list-all mode) populates cache
+        // First search with MatchMode::All (survey mode) populates cache
         let modes_all = vec![MatchMode::All];
         let results_all = search(
             &modes_all,

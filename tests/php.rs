@@ -32,14 +32,14 @@ fn peek_for_php_class_scope_brace_ns() {
 
 #[test]
 fn peek_for_php_method_scope() {
-    let output = peek(&["-k", "function", "getName", "tests/fixtures/php"]);
+    let output = peek(&["-k", "method", "getName", "tests/fixtures/php"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "App\\Models\\User::getName" && r.kind == "function")
+            .any(|r| r.scope == "App\\Models\\User::getName" && r.kind == "method")
     );
 }
 
@@ -112,7 +112,7 @@ fn peek_for_php_mixed_html_class() {
 
 #[test]
 fn peek_for_php_mixed_html_method() {
-    let output = peek(&["-k", "function", "render", "tests/fixtures/php"]);
+    let output = peek(&["-k", "method", "render", "tests/fixtures/php"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     // render() is in mixed_html.php Page class and comprehensive.php Renderable interface
@@ -163,14 +163,14 @@ fn peek_for_php_trait_scope() {
 
 #[test]
 fn peek_for_php_trait_method_scope() {
-    let output = peek(&["-k", "function", "log", "tests/fixtures/php"]);
+    let output = peek(&["-k", "method", "log", "tests/fixtures/php"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "App\\Models\\Loggable::log" && r.kind == "function")
+            .any(|r| r.scope == "App\\Models\\Loggable::log" && r.kind == "method")
     );
 }
 
@@ -251,5 +251,123 @@ fn peek_for_php_interface_scope() {
         results
             .iter()
             .any(|r| r.scope == "App\\Models\\Renderable" && r.kind == "interface")
+    );
+}
+
+// === PHP Property tests ===
+
+#[test]
+fn peek_for_php_typed_property() {
+    // public string $name in User class
+    let output = peek(&["-k", "property", "name", "tests/fixtures/php"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "App\\Models\\User::name" && r.kind == "property"),
+        "expected property User::name, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_php_int_property() {
+    // public int $age in User class
+    let output = peek(&["-k", "property", "age", "tests/fixtures/php"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "App\\Models\\User::age" && r.kind == "property"),
+        "expected property User::age, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_php_property_not_const() {
+    // $name should NOT appear as const
+    let output = peek(&["-k", "const", "name", "tests/fixtures/php"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "property should not match -k const"
+    );
+}
+
+#[test]
+fn peek_for_php_value_category_includes_property() {
+    let output = peek(&["-k", "value", "name", "tests/fixtures/php"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results.iter().any(|r| r.scope == "App\\Models\\User::name"),
+        "expected User::name in value category, got: {results:?}"
+    );
+}
+
+// === Namespace tests ===
+
+#[test]
+fn peek_for_php_namespace_kind_simple() {
+    // Use -e with properly escaped backslash for regex pattern matching PHP namespace scope
+    let output = peek(&[
+        "-k",
+        "namespace",
+        "-e",
+        "App\\\\Models",
+        "tests/fixtures/php",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "App\\Models" && r.kind == "namespace"),
+        "expected namespace App\\Models, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_php_namespace_kind_brace() {
+    let output = peek(&[
+        "-k",
+        "namespace",
+        "-e",
+        "App\\\\Services",
+        "tests/fixtures/php",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "App\\Services" && r.kind == "namespace"),
+        "expected namespace App\\Services, got: {results:?}"
+    );
+}
+
+#[test]
+fn peek_for_php_namespace_kind_attribute() {
+    let output = peek(&[
+        "-k",
+        "namespace",
+        "-e",
+        "App\\\\Attributes",
+        "tests/fixtures/php",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "App\\Attributes" && r.kind == "namespace"),
+        "expected namespace App\\Attributes, got: {results:?}"
     );
 }

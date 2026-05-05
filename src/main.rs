@@ -7,13 +7,14 @@ mod pattern;
 mod pipeline;
 mod registry;
 
+use std::io::IsTerminal;
 use std::path::Path;
 use std::process::ExitCode;
 
 use clap::Parser;
 
 use crate::cli::{Cli, reorder_cli_args};
-use crate::model::DefKind;
+use crate::model::{Category, DefKind};
 use crate::output::OutputMode;
 use crate::pattern::CaseSensitivity;
 use crate::pipeline::{SearchOptions, SearchResult};
@@ -70,20 +71,21 @@ fn try_main() -> anyhow::Result<ExitCode> {
 
     // Collect patterns from positional arg and -e/--regexp flags
     let patterns = cli.collect_patterns();
-    let list_all = cli.is_list_all();
-    if patterns.is_empty() && !list_all {
+    let survey = cli.is_survey();
+    if patterns.is_empty() && !survey {
         anyhow::bail!("error: no pattern specified (use positional argument or -e/--regexp)");
     }
 
-    // Validate --kind tags
+    // Validate --kind tags (accepts both sub-kinds and categories)
     if let Some(tags) = cli.kind_tags() {
         let unknown: Vec<&str> = tags
             .iter()
-            .filter(|t| DefKind::from_tag(t).is_none())
+            .filter(|t| DefKind::from_tag(t).is_none() && Category::from_tag(t).is_none())
             .map(|s| s.as_str())
             .collect();
         if !unknown.is_empty() {
-            let valid: Vec<&str> = DefKind::all().iter().map(|k| k.display_tag()).collect();
+            let mut valid: Vec<&str> = DefKind::all().iter().map(|k| k.display_tag()).collect();
+            valid.extend(Category::all().iter().map(|c| c.display_tag()));
             anyhow::bail!(
                 "unknown definition type(s): {}. Valid types: {}",
                 unknown.join(", "),
@@ -101,8 +103,8 @@ fn try_main() -> anyhow::Result<ExitCode> {
         CaseSensitivity::Sensitive
     };
 
-    // Parse each pattern independently, or use list-all mode
-    let (modes, display_name) = if list_all {
+    // Parse each pattern independently, or use survey mode
+    let (modes, display_name) = if survey {
         (vec![crate::parser::MatchMode::All], "*".to_string())
     } else {
         let parsed_patterns: Vec<crate::pattern::ParsedPattern> = patterns
@@ -146,6 +148,7 @@ fn try_main() -> anyhow::Result<ExitCode> {
         hidden: cli.hidden(),
         no_ignore: cli.no_ignore(),
         max_depth: cli.max_depth(),
+        max_scope_depth: cli.max_scope_depth(),
     };
 
     let output_mode = if cli.files_with_matches() {
@@ -160,12 +163,20 @@ fn try_main() -> anyhow::Result<ExitCode> {
         }
     } else {
         OutputMode::Normal {
+            survey,
             no_signature,
             no_filename: should_suppress_filename(
                 &search_paths,
                 cli.with_filename(),
                 cli.no_filename(),
             ),
+            heading: if cli.heading() {
+                true
+            } else if cli.no_heading() {
+                false
+            } else {
+                std::io::stdout().is_terminal()
+            },
         }
     };
 
@@ -194,18 +205,10 @@ fn try_main() -> anyhow::Result<ExitCode> {
         files.join(", ")
     };
 
-    let path_separator = cli.path_separator();
-
     let output = if cli.json() {
-        output::format_json_output(&merged_result, output_mode, path_separator)
+        output::format_json_output(&merged_result, output_mode)
     } else {
-        output::format_output(
-            &display_name,
-            &display_path,
-            &merged_result,
-            output_mode,
-            path_separator,
-        )
+        output::format_output(&display_name, &display_path, &merged_result, output_mode)
     };
     if !output.is_empty() {
         use std::io::Write;

@@ -66,3 +66,23 @@ public static class EmailEvents
     public static event EventHandler<string> OnEmailSent;
     public static event EventHandler<string> OnEmailFailed;
 }
+
+// Fields and Properties
+public class Product
+{
+    // Fields (plain data members)
+    public int Id;
+    private string _name;
+    protected double Price;
+
+    // Properties (with accessor semantics)
+    public string DisplayName { get; set; }
+    public string Category { get; }
+    public virtual string Description { get; set; }
+}
+
+public struct Coordinate
+{
+    public double Latitude;
+    public double Longitude;
+}

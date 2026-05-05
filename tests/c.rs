@@ -70,14 +70,14 @@ fn peek_for_c_enum_scope() {
 
 #[test]
 fn peek_for_c_typedef_scope() {
-    let output = peek(&["-k", "type", "StatusCode", "tests/fixtures/c"]);
+    let output = peek(&["-k", "alias", "StatusCode", "tests/fixtures/c"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "StatusCode" && r.kind == "type")
+            .any(|r| r.scope == "StatusCode" && r.kind == "alias")
     );
 }
 
@@ -109,6 +109,29 @@ fn peek_for_c_static_const_scope() {
 
 // NOTE: No macro test — neither comprehensive.c nor union_bug.c contains #define directives.
 
+#[test]
+fn peek_for_c_union_scope() {
+    let output = peek(&["-k", "union", "Value", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "Value" && r.kind == "union")
+    );
+}
+
+#[test]
+fn peek_for_c_union_not_matched_by_struct() {
+    let output = peek(&["-k", "struct", "Value", "tests/fixtures/c"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "union should not match struct kind filter"
+    );
+}
+
 // === Function-body definitions should NOT be extracted ===
 
 #[test]
@@ -119,4 +142,108 @@ fn peek_for_c_function_body_const_not_extracted() {
         Some(1),
         "Expected no results for function-body const"
     );
+}
+
+// === Field tests ===
+
+#[test]
+fn peek_for_c_struct_field() {
+    let output = peek(&["-k", "field", "-w", "x", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "Point::x")
+    );
+}
+
+#[test]
+fn peek_for_c_struct_field_timeout() {
+    let output = peek(&["-k", "field", "timeout", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "field" && r.scope == "Config::timeout")
+    );
+}
+
+#[test]
+fn peek_for_c_field_kind_excludes_struct() {
+    // "timeout" is a field in Config struct, searching with -k struct should return nothing
+    let output = peek(&["-k", "struct", "timeout", "tests/fixtures/c"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "field name should not match -k struct"
+    );
+}
+
+// === Value category expansion ===
+
+#[test]
+fn peek_for_c_value_category_includes_field() {
+    let output = peek(&["-k", "value", "-w", "x", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|r| r.kind == "field"));
+}
+
+// === Static tests ===
+
+#[test]
+fn peek_for_c_file_scope_static() {
+    let output = peek(&["-k", "static", "-w", "file_count", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "static" && r.scope == "file_count")
+    );
+}
+
+#[test]
+fn peek_for_c_static_const_is_const_not_static() {
+    // `static const int VERSION = 2;` should be Const, not Static
+    let output = peek(&["-k", "static", "-w", "VERSION", "tests/fixtures/c"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "static const should be Const, not Static"
+    );
+}
+
+#[test]
+fn peek_for_c_static_pointer_var() {
+    let output = peek(&["-k", "static", "-w", "file_name", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|r| r.kind == "static" && r.scope == "file_name")
+    );
+}
+
+#[test]
+fn peek_for_c_value_category_includes_static() {
+    let output = peek(&["-k", "value", "-w", "file_count", "tests/fixtures/c"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|r| r.kind == "static"));
 }

@@ -19,14 +19,14 @@ fn peek_for_lua_dot_method_scope() {
 
 #[test]
 fn peek_for_lua_colon_method_scope() {
-    let output = peek(&["-k", "function", "cube", "tests/fixtures/lua"]);
+    let output = peek(&["-k", "method", "cube", "tests/fixtures/lua"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     let results = parse_defs(&stdout);
     assert!(
         results
             .iter()
-            .any(|r| r.scope == "math_utils.cube" && r.kind == "function")
+            .any(|r| r.scope == "math_utils.cube" && r.kind == "method")
     );
 }
 
@@ -92,6 +92,40 @@ fn peek_for_lua_colon_method_nested_function_scope() {
         results
             .iter()
             .any(|r| r.scope == "config.save.write_file" && r.kind == "function")
+    );
+}
+
+#[test]
+fn peek_for_lua_colon_method_is_method_kind() {
+    let output = peek(&["-k", "method", "cube", "tests/fixtures/lua"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, "method");
+    assert_eq!(results[0].scope, "math_utils.cube");
+}
+
+#[test]
+fn peek_for_lua_dot_method_is_function_kind() {
+    let output = peek(&["-k", "function", "square", "tests/fixtures/lua"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let results = parse_defs(&stdout);
+    assert!(
+        results
+            .iter()
+            .any(|r| r.scope == "math_utils.square" && r.kind == "function")
+    );
+}
+
+#[test]
+fn peek_for_lua_method_kind_excludes_dot_functions() {
+    let output = peek(&["-k", "method", "square", "tests/fixtures/lua"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "-k method should not match dot-access functions"
     );
 }
 

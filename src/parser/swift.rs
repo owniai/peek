@@ -19,14 +19,19 @@ impl LanguageParser for SwiftParser {
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
+            DefKind::Method,
+            DefKind::Constructor,
             DefKind::Class,
             DefKind::Struct,
             DefKind::Enum,
             DefKind::Protocol,
-            DefKind::Type,
+            DefKind::Alias,
             DefKind::Const,
             DefKind::Actor,
             DefKind::Extension,
+            DefKind::Property,
+            DefKind::Variant,
+            DefKind::Destructor,
         ]
     }
 
@@ -187,7 +192,7 @@ fn handle_protocol(
     }
 }
 
-/// Handle a function_declaration node.
+/// Handle a function_declaration or protocol_function_declaration node.
 fn handle_function(
     node: Node,
     source: &str,
@@ -195,8 +200,9 @@ fn handle_function(
     kinds: &[DefKind],
     results: &mut Vec<DefContent>,
     scope: &str,
+    def_kind: DefKind,
 ) {
-    if !kinds.contains(&DefKind::Function) {
+    if !kinds.contains(&def_kind) {
         return;
     }
 
@@ -223,15 +229,15 @@ fn handle_function(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: def_kind,
         lines: [start, end],
         signature,
         scope: own_scope,
     });
 }
 
-/// Handle a typealias_declaration node.
-fn handle_typealias(
+/// Handle an init_declaration node (Swift initializer / constructor).
+fn handle_init(
     node: Node,
     source: &str,
     mode: &MatchMode,
@@ -239,7 +245,128 @@ fn handle_typealias(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Type) {
+    if !kinds.contains(&DefKind::Constructor) {
+        return;
+    }
+
+    // init has no name field -- use "init" as the name (or scope prefix for qualified init)
+    let name = "init";
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name);
+    let raw_sig = if let Some(body) = first_child_by_kind(node, "function_body") {
+        flatten_bytes(node.start_byte(), body.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        first_line_of_node(node, source)
+    };
+    let signature = normalize_signature(&raw_sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Constructor,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle a deinit_declaration node (Swift deinitializer / destructor).
+fn handle_deinit(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Destructor) {
+        return;
+    }
+
+    let name = "deinit";
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name);
+    let raw_sig = if let Some(body) = first_child_by_kind(node, "function_body") {
+        flatten_bytes(node.start_byte(), body.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        first_line_of_node(node, source)
+    };
+    let signature = normalize_signature(&raw_sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Destructor,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle an enum_entry node (Swift enum case / variant).
+///
+/// Tree-sitter-swift uses `enum_entry` nodes inside `enum_class_body`.
+/// Each `enum_entry` has one or more `name` fields (simple_identifier).
+/// Multiple cases on one line produce multiple `name` children.
+fn handle_enum_entry(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Variant) {
+        return;
+    }
+
+    // Collect all name fields — an enum_entry can declare multiple variants
+    let mut names: Vec<String> = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children_by_field_name("name", &mut cursor) {
+        let name_ref = node_text_ref(child, source);
+        if mode.matches_ident(name_ref) {
+            names.push(name_ref.to_string());
+        }
+    }
+
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+
+    for name in names {
+        let own_scope = build_scope(scope, ".", &name);
+
+        results.push(DefContent {
+            kind: DefKind::Variant,
+            lines: [start, end],
+            signature: signature.clone(),
+            scope: own_scope,
+        });
+    }
+}
+
+/// Handle an associatedtype_declaration node (Swift protocol associated type).
+///
+/// Maps to DefKind::Alias (type alias).
+fn handle_associatedtype(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Alias) {
         return;
     }
 
@@ -260,7 +387,44 @@ fn handle_typealias(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Type,
+        kind: DefKind::Alias,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle a typealias_declaration node.
+fn handle_typealias(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Alias) {
+        return;
+    }
+
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Alias,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -345,6 +509,36 @@ fn extract_property_name_node(node: Node) -> Option<Node> {
     None
 }
 
+/// Handle a property_declaration with `var` binding as Property kind.
+fn handle_property(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_ref = extract_property_name_node(node).map(|n| node_text_ref(n, source));
+
+    if let Some(name_ref) = name_ref {
+        if !mode.matches_ident(name_ref) {
+            return;
+        }
+
+        let own_scope = build_scope(scope, ".", name_ref);
+        let sig = first_line_of_node(node, source);
+        let signature = normalize_signature(&sig);
+        let start_row = node.start_position().row + 1;
+        let [start, end] = line_range(start_row, node);
+
+        results.push(DefContent {
+            kind: DefKind::Property,
+            lines: [start, end],
+            signature,
+            scope: own_scope,
+        });
+    }
+}
+
 /// Recursively walk the AST, dispatching to type-specific handlers.
 fn collect_definitions(
     node: Node,
@@ -363,16 +557,39 @@ fn collect_definitions(
             handle_protocol(node, source, mode, kinds, results, scope);
         }
         "function_declaration" => {
-            handle_function(node, source, mode, kinds, results, scope);
+            // Scope-based: if inside a type body (!scope.is_empty()), emit Method
+            let def_kind = if scope.is_empty() {
+                DefKind::Function
+            } else {
+                DefKind::Method
+            };
+            handle_function(node, source, mode, kinds, results, scope, def_kind);
         }
         "protocol_function_declaration" => {
-            handle_function(node, source, mode, kinds, results, scope);
+            // Always a method (protocol member)
+            handle_function(node, source, mode, kinds, results, scope, DefKind::Method);
+        }
+        "init_declaration" => {
+            handle_init(node, source, mode, kinds, results, scope);
+        }
+        "deinit_declaration" => {
+            handle_deinit(node, source, mode, kinds, results, scope);
+        }
+        "enum_entry" => {
+            handle_enum_entry(node, source, mode, kinds, results, scope);
+        }
+        "associatedtype_declaration" => {
+            handle_associatedtype(node, source, mode, kinds, results, scope);
         }
         "typealias_declaration" => {
             handle_typealias(node, source, mode, kinds, results, scope);
         }
         "property_declaration" => {
-            handle_const(node, source, mode, kinds, results, scope);
+            if is_let_property(node, source) {
+                handle_const(node, source, mode, kinds, results, scope);
+            } else if kinds.contains(&DefKind::Property) {
+                handle_property(node, source, mode, results, scope);
+            }
         }
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
@@ -432,5 +649,98 @@ mod tests {
         let source = "class MyClass {}";
         let defs = extract_definitions(&SwiftParser, "MyClass", &[DefKind::Function], source);
         assert!(defs.is_empty());
+    }
+
+    // --- Variant tests ---
+
+    #[test]
+    fn test_enum_variant_single() {
+        let source = "enum Color {\n    case red\n    case green\n}";
+        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Variant], source);
+        assert_eq!(defs.len(), 2);
+        assert_eq!(defs[0].kind, DefKind::Variant);
+        assert_eq!(defs[0].scope, "Color.red");
+        assert_eq!(defs[1].kind, DefKind::Variant);
+        assert_eq!(defs[1].scope, "Color.green");
+    }
+
+    #[test]
+    fn test_enum_variant_multiple_on_line() {
+        let source = "enum Direction {\n    case north, south, east, west\n}";
+        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Variant], source);
+        assert_eq!(defs.len(), 4);
+        assert_eq!(defs[0].scope, "Direction.north");
+        assert_eq!(defs[1].scope, "Direction.south");
+        assert_eq!(defs[2].scope, "Direction.east");
+        assert_eq!(defs[3].scope, "Direction.west");
+    }
+
+    #[test]
+    fn test_enum_variant_with_parameters() {
+        let source = "enum Barcode {\n    case upc(Int, Int, Int, Int)\n    case qrCode(String)\n}";
+        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Variant], source);
+        assert_eq!(defs.len(), 2);
+        assert_eq!(defs[0].scope, "Barcode.upc");
+        assert_eq!(defs[1].scope, "Barcode.qrCode");
+    }
+
+    #[test]
+    fn test_enum_variant_name_filter() {
+        let source = "enum Color {\n    case red\n    case blue\n}";
+        let defs = extract_definitions(&SwiftParser, "red", &[DefKind::Variant], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].scope, "Color.red");
+    }
+
+    // --- Destructor tests ---
+
+    #[test]
+    fn test_deinit() {
+        let source = "class MyClass {\n    deinit {\n        cleanup()\n    }\n}";
+        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Destructor], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, DefKind::Destructor);
+        assert_eq!(defs[0].scope, "MyClass.deinit");
+        assert!(defs[0].signature.starts_with("deinit"));
+    }
+
+    #[test]
+    fn test_deinit_name_filter() {
+        let source = "class MyClass {\n    deinit {\n        cleanup()\n    }\n}";
+        let defs = extract_definitions(&SwiftParser, "deinit", &[DefKind::Destructor], source);
+        assert_eq!(defs.len(), 1);
+        // Filtering by something else should return nothing
+        let defs2 = extract_definitions(&SwiftParser, "other", &[DefKind::Destructor], source);
+        assert!(defs2.is_empty());
+    }
+
+    // --- Associatedtype tests ---
+
+    #[test]
+    fn test_associatedtype() {
+        let source =
+            "protocol Container {\n    associatedtype Item\n    associatedtype Iterator\n}";
+        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Alias], source);
+        assert_eq!(defs.len(), 2);
+        assert_eq!(defs[0].kind, DefKind::Alias);
+        assert_eq!(defs[0].scope, "Container.Item");
+        assert_eq!(defs[1].scope, "Container.Iterator");
+    }
+
+    #[test]
+    fn test_associatedtype_with_constraint() {
+        let source = "protocol Container {\n    associatedtype Element: Equatable\n}";
+        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Alias], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].scope, "Container.Element");
+    }
+
+    #[test]
+    fn test_associatedtype_name_filter() {
+        let source =
+            "protocol Container {\n    associatedtype Item\n    associatedtype Iterator\n}";
+        let defs = extract_definitions(&SwiftParser, "Item", &[DefKind::Alias], source);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].scope, "Container.Item");
     }
 }

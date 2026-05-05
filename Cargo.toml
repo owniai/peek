@@ -1,6 +1,6 @@
 [package]
 name = "peek-code"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["owniai"]
 description = """
 peek is a CLI tool that searches for code definitions (functions, classes,

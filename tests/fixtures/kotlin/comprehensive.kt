@@ -27,6 +27,11 @@ class SimpleClass(val name: String) {
     fun greet(): String = "Hello, $name"
 }
 
+// Class with secondary constructor
+class Person(val firstName: String, val lastName: String) {
+    constructor(fullName: String) : this(fullName.split(" ")[0], fullName.split(" ")[1])
+}
+
 // Data class
 data class Point(val x: Double, val y: Double) {
     fun distanceTo(other: Point): Double {
@@ -137,4 +142,22 @@ class Container {
             fun configure() {}
         }
     }
+}
+
+// Properties in class body
+class UserProfile {
+    var displayName: String = ""
+    val isActive: Boolean = true
+    var loginCount: Int = 0
+
+    fun update() {}
+}
+
+// Class with mixed constructor params
+class MixedParams(
+    val propParam: String,
+    var mutableParam: Int,
+    plainParam: Double
+) {
+    fun method() {}
 }

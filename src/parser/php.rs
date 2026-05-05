@@ -1,7 +1,8 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
-    LanguageParser, MatchMode, build_scope, build_scope_from_node, first_child_by_kind,
-    first_line_of_node, flatten_bytes, line_range, node_text, node_text_ref, normalize_signature,
+    LanguageParser, MatchMode, build_scope, build_scope_from_node, extract_signature_to_body,
+    first_child_by_kind, first_line_of_node, flatten_bytes, line_range, node_text, node_text_ref,
+    normalize_signature,
 };
 use tree_sitter::{Node, Parser};
 
@@ -19,11 +20,15 @@ impl LanguageParser for PhpParser {
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
+            DefKind::Method,
             DefKind::Class,
             DefKind::Interface,
             DefKind::Trait,
             DefKind::Enum,
             DefKind::Const,
+            DefKind::Property,
+            DefKind::Namespace,
+            DefKind::Variant,
         ]
     }
 
@@ -58,6 +63,21 @@ impl LanguageParser for PhpParser {
                     // Check if brace syntax: has a body field (compound_statement)
                     if let Some(body) = child.child_by_field_name("body") {
                         // Brace syntax: process body children with this namespace
+                        // Emit namespace definition
+                        if !ns_name.is_empty()
+                            && kinds.contains(&DefKind::Namespace)
+                            && mode.matches_ident(&ns_name)
+                        {
+                            let sig = extract_signature_to_body(child, source);
+                            let start_row = child.start_position().row + 1;
+                            let [start, end] = line_range(start_row, child);
+                            results.push(DefContent {
+                                kind: DefKind::Namespace,
+                                lines: [start, end],
+                                signature: sig,
+                                scope: ns_name.clone(),
+                            });
+                        }
                         let mut body_cursor = body.walk();
                         for body_child in body.children(&mut body_cursor) {
                             collect_definitions(
@@ -72,7 +92,21 @@ impl LanguageParser for PhpParser {
                         // Reset current_ns after brace namespace
                         current_ns = String::new();
                     } else {
-                        // Simple syntax: update current_ns for subsequent siblings
+                        // Simple syntax: emit namespace definition, then update current_ns
+                        if !ns_name.is_empty()
+                            && kinds.contains(&DefKind::Namespace)
+                            && mode.matches_ident(&ns_name)
+                        {
+                            let sig = normalize_signature(&first_line_of_node(child, source));
+                            let start_row = child.start_position().row + 1;
+                            let [start, end] = line_range(start_row, child);
+                            results.push(DefContent {
+                                kind: DefKind::Namespace,
+                                lines: [start, end],
+                                signature: sig,
+                                scope: ns_name.clone(),
+                            });
+                        }
                         current_ns = ns_name;
                     }
                 }
@@ -216,7 +250,7 @@ fn collect_definitions(
         }
         // --- Method/Function definitions ---
         "method_declaration" => {
-            if kinds.contains(&DefKind::Function) {
+            if kinds.contains(&DefKind::Method) {
                 handle_method(node, source, mode, results, scope);
             }
             // Do not recurse into method body
@@ -233,6 +267,18 @@ fn collect_definitions(
                 handle_const(node, source, mode, results, scope);
             }
         }
+        // --- Property definitions ---
+        "property_declaration" => {
+            if kinds.contains(&DefKind::Property) {
+                handle_property(node, source, mode, results, scope);
+            }
+        }
+        // --- Enum case (Variant) ---
+        "enum_case" => {
+            if kinds.contains(&DefKind::Variant) {
+                handle_enum_case(node, source, mode, results, scope);
+            }
+        }
         // --- Container nodes: recurse into children ---
         "declaration_list" | "enum_declaration_list" | "compound_statement" => {
             recurse_children(node, source, mode, kinds, results, scope);
@@ -242,8 +288,6 @@ fn collect_definitions(
         | "namespace_use_function_declaration"
         | "namespace_use_const_declaration"
         | "namespace_group_use_declaration"
-        | "property_declaration"
-        | "enum_case"
         | "attribute_list"
         | "php_tag"
         | "text"
@@ -360,7 +404,7 @@ fn handle_method(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: DefKind::Method,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -495,6 +539,107 @@ fn extract_const_signature(node: Node, source: &str) -> String {
         .unwrap_or_else(|| first_line_of_node(node, source))
 }
 
+/// Handle a property_declaration node: extract typed properties.
+/// PHP property_declaration > property_element > name > variable_name > name
+fn handle_property(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    // Find property_element children and extract variable names
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "property_element" {
+            continue;
+        }
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Resolve the property name (without $ prefix)
+        let name_ref: &str = if name_node.kind() == "variable_name" {
+            match name_node.child_by_field_name("name") {
+                Some(n) => node_text_ref(n, source),
+                None => {
+                    // Fallback: strip $ from variable_name text
+                    let raw = node_text_ref(name_node, source);
+                    raw.strip_prefix('$').unwrap_or(raw)
+                }
+            }
+        } else {
+            node_text_ref(name_node, source)
+        };
+
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+
+        let own_scope = build_scope(scope, "::", name_ref);
+        results.push(DefContent {
+            kind: DefKind::Property,
+            lines: [start, end],
+            signature: signature.clone(),
+            scope: own_scope,
+        });
+    }
+}
+
+/// Handle an enum_case node (PHP enum variant).
+/// enum_case has a required `name` field (type: "name") and optional `value` field.
+/// Signature: from (attributes or node) start to `;` boundary.
+fn handle_enum_case(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, "::", name_ref);
+    let signature = extract_enum_case_signature(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Variant,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Extract an enum_case's signature: from (attributes or node) start to `;` boundary.
+fn extract_enum_case_signature(node: Node, source: &str) -> String {
+    let start_byte = signature_start_byte(node);
+    let mut end_byte = node.end_byte();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == ";" {
+            end_byte = child.start_byte();
+            break;
+        }
+    }
+    flatten_bytes(start_byte, end_byte, source)
+        .map(|s| normalize_signature(&s))
+        .unwrap_or_else(|| first_line_of_node(node, source))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,14 +661,17 @@ mod tests {
     }
 
     #[test]
-    fn test_enum_case_not_extracted() {
+    fn test_enum_case_extracted_as_variant() {
         let results = extract_definitions(
             &PhpParser,
             "Active",
             DefKind::all(),
             "<?php enum Status { case Active; case Inactive; }",
         );
-        assert!(results.is_empty());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, DefKind::Variant);
+        assert_eq!(results[0].scope, "Status::Active");
+        assert_eq!(results[0].signature, "case Active");
     }
 
     #[test]

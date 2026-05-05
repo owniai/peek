@@ -30,7 +30,7 @@ impl LanguageParser for RubyParser {
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
-            DefKind::Function,
+            DefKind::Method,
             DefKind::Class,
             DefKind::Module,
             DefKind::Const,
@@ -91,7 +91,7 @@ fn handle_method(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Function) {
+    if !kinds.contains(&DefKind::Method) {
         return;
     }
 
@@ -111,7 +111,7 @@ fn handle_method(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Function,
+        kind: DefKind::Method,
         lines: [start, end],
         signature,
         scope: own_scope,

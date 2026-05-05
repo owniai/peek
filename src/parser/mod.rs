@@ -255,6 +255,55 @@ pub fn is_const_declaration(node: Node, source: &str) -> bool {
     false
 }
 
+/// Check if a declaration node represents a static variable declaration
+/// (as opposed to a function prototype, const, or non-static variable).
+///
+/// Returns true when the node has a `storage_class_specifier("static")` child
+/// but is NOT a const declaration (const takes priority) and NOT a function
+/// prototype. Used by both C and C++ parsers.
+pub fn is_static_declaration(node: Node, source: &str) -> bool {
+    // Exclude const declarations -- const takes priority over static
+    if is_const_declaration(node, source) {
+        return false;
+    }
+    // Exclude function prototypes
+    if let Some(mut decl) = node.child_by_field_name("declarator") {
+        loop {
+            match decl.kind() {
+                "function_declarator" => return false,
+                "pointer_declarator" | "parenthesized_declarator" => {
+                    decl = match decl.child_by_field_name("declarator") {
+                        Some(d) => d,
+                        None => break,
+                    };
+                }
+                _ => break,
+            }
+        }
+    }
+    // Check for storage_class_specifier("static")
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "storage_class_specifier" {
+            if let Ok(text) = child.utf8_text(source.as_bytes()) {
+                if text == "static" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Extract static variable name from a declarator field.
+///
+/// Uses the same traversal logic as `extract_const_name`:
+/// unwrap `init_declarator`, then unwrap `pointer_declarator` layers,
+/// then return the identifier text.
+pub fn extract_static_name(declarator: Node, source: &str) -> Option<String> {
+    extract_const_name(declarator, source)
+}
+
 /// Extract const variable name from a declarator field.
 ///
 /// Handles two AST structures:
@@ -329,6 +378,42 @@ pub fn extract_signature_to_body(node: Node, source: &str) -> String {
     let sig = flatten_bytes(node.start_byte(), end_byte, source)
         .unwrap_or_else(|| first_line_of_node(node, source));
     normalize_signature(&sig)
+}
+
+/// Classify a `method_definition` node into the appropriate callable sub-kind.
+///
+/// Used by both JavaScript and TypeScript parsers, which share the same
+/// `method_definition` node structure in their tree-sitter grammars.
+///
+/// Detection priority (checked in order):
+/// 1. Named `"constructor"` -> Constructor
+/// 2. First unnamed child is literal `"get"` -> Getter
+/// 3. First unnamed child is literal `"set"` -> Setter
+/// 4. Otherwise -> Method
+pub fn classify_method_definition(node: Node, source: &str) -> DefKind {
+    // Check if named "constructor" (keyword)
+    if let Some(name_node) = node.child_by_field_name("name") {
+        if node_text_ref(name_node, source) == "constructor" {
+            return DefKind::Constructor;
+        }
+    }
+
+    // Check first unnamed child for "get" or "set" literal
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.is_named() {
+            break;
+        }
+        if let Ok(text) = child.utf8_text(source.as_bytes()) {
+            return match text.trim() {
+                "get" => DefKind::Getter,
+                "set" => DefKind::Setter,
+                _ => DefKind::Method,
+            };
+        }
+    }
+
+    DefKind::Method
 }
 
 /// Build a scope string by joining parent and name with a separator.
@@ -849,6 +934,99 @@ mod tests {
         assert_eq!(
             super::build_scope_from_node(root, src, "Parent", "."),
             "Parent"
+        );
+    }
+
+    // ============================================================
+    // is_static_declaration tests
+    // ============================================================
+
+    #[test]
+    fn is_static_declaration_static_var() {
+        let source = "static int count = 0;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        assert!(super::is_static_declaration(decl, src));
+    }
+
+    #[test]
+    fn is_static_declaration_non_static() {
+        let source = "int x = 1;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        assert!(!super::is_static_declaration(decl, src));
+    }
+
+    #[test]
+    fn is_static_declaration_static_function_prototype_not_static() {
+        // static function prototypes should be excluded (they are Function kind)
+        let source = "static void helper(void);";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        assert!(!super::is_static_declaration(decl, src));
+    }
+
+    #[test]
+    fn is_static_declaration_const_var_not_static() {
+        let source = "const int MAX = 100;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        assert!(!super::is_static_declaration(decl, src));
+    }
+
+    #[test]
+    fn is_static_declaration_static_const_var_not_static() {
+        // `static const int X = 1;` is both static and const.
+        // It should be recognized as const (handled by is_const_declaration)
+        // rather than static, because const is the more specific qualifier.
+        // is_static_declaration must exclude const declarations.
+        let source = "static const int VERSION = 2;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        assert!(!super::is_static_declaration(decl, src));
+    }
+
+    #[test]
+    fn is_static_declaration_cpp_static_var() {
+        let source = "static int buffer_size = 4096;";
+        let (tree, src) = parse_cpp(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        assert!(super::is_static_declaration(decl, src));
+    }
+
+    #[test]
+    fn extract_static_name_with_initializer() {
+        let source = "static int count = 0;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        let declarator = decl.child_by_field_name("declarator").unwrap();
+        assert_eq!(
+            super::extract_static_name(declarator, src),
+            Some("count".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_static_name_without_initializer() {
+        let source = "static int count;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        let declarator = decl.child_by_field_name("declarator").unwrap();
+        assert_eq!(
+            super::extract_static_name(declarator, src),
+            Some("count".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_static_name_pointer_var() {
+        let source = "static char *name;";
+        let (tree, src) = parse_c(source);
+        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
+        let declarator = decl.child_by_field_name("declarator").unwrap();
+        assert_eq!(
+            super::extract_static_name(declarator, src),
+            Some("name".to_string())
         );
     }
 }
