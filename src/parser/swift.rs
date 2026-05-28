@@ -5,33 +5,47 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "swift";
+pub(crate) const EXTENSIONS: &[&str] = &["swift", "swiftinterface"];
+pub(crate) const ALIASES: &[&str] = &[];
+
 pub struct SwiftParser;
 
 impl LanguageParser for SwiftParser {
     fn language(&self) -> &'static str {
-        "swift"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".swift", ".swiftinterface"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Constructor,
+            DefKind::ConstructorDeclaration,
             DefKind::Class,
             DefKind::Struct,
             DefKind::Enum,
             DefKind::Protocol,
             DefKind::Alias,
+            DefKind::AssociatedType,
             DefKind::Const,
             DefKind::Actor,
             DefKind::Extension,
             DefKind::Property,
+            DefKind::Var,
             DefKind::Variant,
             DefKind::Destructor,
+            DefKind::Subscript,
+            DefKind::SubscriptDeclaration,
+            DefKind::Operator,
+            DefKind::OperatorDeclaration,
+            DefKind::PropertyDeclaration,
+            DefKind::Macro,
         ]
     }
 
@@ -311,7 +325,114 @@ fn handle_deinit(
     });
 }
 
-/// Handle an enum_entry node (Swift enum case / variant).
+/// Handle a subscript_declaration node (Swift subscript).
+/// Subscripts have no name field, so we use "subscript" as the identifier.
+fn handle_subscript(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Subscript) {
+        return;
+    }
+
+    let name = "subscript";
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name);
+    let raw_sig = if let Some(body) = first_child_by_kind(node, "computed_property") {
+        flatten_bytes(node.start_byte(), body.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        first_line_of_node(node, source)
+    };
+    let signature = normalize_signature(&raw_sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Subscript,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle an init_declaration node that is a protocol requirement (no body).
+/// Maps to ConstructorDeclaration instead of Constructor.
+fn handle_init_declaration(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::ConstructorDeclaration) {
+        return;
+    }
+
+    let name = "init";
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name);
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::ConstructorDeclaration,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle a subscript_declaration node that is a protocol requirement (no concrete body).
+/// Maps to SubscriptDeclaration instead of Subscript.
+fn handle_subscript_declaration(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::SubscriptDeclaration) {
+        return;
+    }
+
+    let name = "subscript";
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name);
+    let raw_sig = if let Some(cp) = first_child_by_kind(node, "computed_property") {
+        flatten_bytes(node.start_byte(), cp.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        first_line_of_node(node, source)
+    };
+    let signature = normalize_signature(&raw_sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::SubscriptDeclaration,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
 ///
 /// Tree-sitter-swift uses `enum_entry` nodes inside `enum_class_body`.
 /// Each `enum_entry` has one or more `name` fields (simple_identifier).
@@ -357,7 +478,7 @@ fn handle_enum_entry(
 
 /// Handle an associatedtype_declaration node (Swift protocol associated type).
 ///
-/// Maps to DefKind::Alias (type alias).
+/// Maps to DefKind::AssociatedType (protocol abstract type requirement).
 fn handle_associatedtype(
     node: Node,
     source: &str,
@@ -366,7 +487,7 @@ fn handle_associatedtype(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if !kinds.contains(&DefKind::Alias) {
+    if !kinds.contains(&DefKind::AssociatedType) {
         return;
     }
 
@@ -387,7 +508,7 @@ fn handle_associatedtype(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Alias,
+        kind: DefKind::AssociatedType,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -481,6 +602,26 @@ fn handle_const(
     }
 }
 
+/// Check if a function_declaration has an operator symbol as its name.
+/// Swift operator characters: / = - + ! * % < > & | ^ ~ ?
+fn is_swift_operator_function(node: Node, source: &str) -> bool {
+    if let Some(name_node) = node.child_by_field_name("name") {
+        let name = node_text_ref(name_node, source);
+        return is_swift_operator_name(name);
+    }
+    false
+}
+
+fn is_swift_operator_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|c| {
+            matches!(
+                c,
+                '/' | '=' | '-' | '+' | '!' | '*' | '%' | '<' | '>' | '&' | '|' | '^' | '~' | '?'
+            )
+        })
+}
+
 /// Check if a property_declaration uses `let` (constant) binding.
 fn is_let_property(node: Node, source: &str) -> bool {
     let mut cursor = node.walk();
@@ -539,6 +680,179 @@ fn handle_property(
     }
 }
 
+/// Handle a property_declaration with `var` binding at top level as Var kind.
+fn handle_var(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    if !kinds.contains(&DefKind::Var) {
+        return;
+    }
+
+    let name_ref = extract_property_name_node(node).map(|n| node_text_ref(n, source));
+
+    if let Some(name_ref) = name_ref {
+        if !mode.matches_ident(name_ref) {
+            return;
+        }
+
+        let sig = first_line_of_node(node, source);
+        let signature = normalize_signature(&sig);
+        let start_row = node.start_position().row + 1;
+        let [start, end] = line_range(start_row, node);
+
+        results.push(DefContent {
+            kind: DefKind::Var,
+            lines: [start, end],
+            signature,
+            scope: name_ref.to_string(),
+        });
+    }
+}
+
+/// Extract the macro name from a `macro_declaration` node.
+///
+/// `macro_declaration` has no `name` field — the name is the first `simple_identifier`
+/// child after the `macro` keyword token.
+fn extract_macro_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
+    let mut found_macro_kw = false;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !found_macro_kw {
+            if !child.is_named() {
+                if let Ok(text) = child.utf8_text(source.as_bytes()) {
+                    if text.trim() == "macro" {
+                        found_macro_kw = true;
+                    }
+                }
+            }
+            continue;
+        }
+        if child.kind() == "simple_identifier" {
+            return node_text_ref(child, source).into();
+        }
+    }
+    None
+}
+
+/// Handle a macro_declaration node (Swift 5.9+ macro definition).
+fn handle_macro(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Macro) {
+        return;
+    }
+
+    let name_ref = match extract_macro_name(node, source) {
+        Some(n) => n,
+        None => return,
+    };
+
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let raw_sig = if let Some(def_node) = node.child_by_field_name("definition") {
+        flatten_bytes(node.start_byte(), def_node.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        first_line_of_node(node, source)
+    };
+    let signature = normalize_signature(&raw_sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Macro,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle an operator_declaration node (e.g. `infix operator +++: AdditionPrecedence`).
+///
+/// The operator name is in a `custom_operator` child node.
+fn handle_operator_declaration(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::OperatorDeclaration) {
+        return;
+    }
+
+    let name_ref = {
+        let mut cursor = node.walk();
+        node.children(&mut cursor)
+            .find(|c| c.kind() == "custom_operator")
+            .map(|c| node_text_ref(c, source))
+    };
+
+    if let Some(name_ref) = name_ref {
+        if !mode.matches_ident(name_ref) {
+            return;
+        }
+
+        let own_scope = build_scope(scope, ".", name_ref);
+        let sig = first_line_of_node(node, source);
+        let signature = normalize_signature(&sig);
+        let start_row = node.start_position().row + 1;
+        let [start, end] = line_range(start_row, node);
+
+        results.push(DefContent {
+            kind: DefKind::OperatorDeclaration,
+            lines: [start, end],
+            signature,
+            scope: own_scope,
+        });
+    }
+}
+
+fn handle_precedence_group(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    if !kinds.contains(&DefKind::Operator) {
+        return;
+    }
+
+    let name_node = first_child_by_kind(node, "simple_identifier");
+    let Some(name_node) = name_node else { return };
+
+    let name = node_text(name_node, source);
+    if !mode.matches_ident(&name) {
+        return;
+    }
+
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Operator,
+        lines: [start, end],
+        signature,
+        scope: name,
+    });
+}
+
 /// Recursively walk the AST, dispatching to type-specific handlers.
 fn collect_definitions(
     node: Node,
@@ -557,8 +871,9 @@ fn collect_definitions(
             handle_protocol(node, source, mode, kinds, results, scope);
         }
         "function_declaration" => {
-            // Scope-based: if inside a type body (!scope.is_empty()), emit Method
-            let def_kind = if scope.is_empty() {
+            let def_kind = if is_swift_operator_function(node, source) {
+                DefKind::Operator
+            } else if scope.is_empty() {
                 DefKind::Function
             } else {
                 DefKind::Method
@@ -566,14 +881,50 @@ fn collect_definitions(
             handle_function(node, source, mode, kinds, results, scope, def_kind);
         }
         "protocol_function_declaration" => {
-            // Always a method (protocol member)
-            handle_function(node, source, mode, kinds, results, scope, DefKind::Method);
+            // Protocol function declarations have no body -- they are declarations, not definitions.
+            // Map to declaration variants: Method → MethodDeclaration, Operator → OperatorDeclaration.
+            let def_kind = if is_swift_operator_function(node, source) {
+                DefKind::Operator
+                    .declaration_pair()
+                    .unwrap_or(DefKind::OperatorDeclaration)
+            } else {
+                DefKind::Method
+                    .declaration_pair()
+                    .unwrap_or(DefKind::MethodDeclaration)
+            };
+            handle_function(node, source, mode, kinds, results, scope, def_kind);
         }
         "init_declaration" => {
-            handle_init(node, source, mode, kinds, results, scope);
+            // Protocol init declarations have no function_body; concrete inits have one.
+            let has_body = first_child_by_kind(node, "function_body").is_some();
+            if has_body {
+                handle_init(node, source, mode, kinds, results, scope);
+            } else {
+                handle_init_declaration(node, source, mode, kinds, results, scope);
+            }
         }
         "deinit_declaration" => {
             handle_deinit(node, source, mode, kinds, results, scope);
+        }
+        "subscript_declaration" => {
+            // Concrete subscripts have a computed_property (getter/setter blocks) or body with function_body;
+            // protocol subscript requirements are inside protocol_body and have computed_property
+            // with only getter_specifier/setter_specifier (no implementation).
+            let in_protocol = node
+                .parent()
+                .map(|p| p.kind() == "protocol_body")
+                .unwrap_or(false);
+            let has_concrete_body = !in_protocol
+                && (first_child_by_kind(node, "computed_property").is_some()
+                    || node
+                        .child_by_field_name("body")
+                        .map(|b| first_child_by_kind(b, "function_body").is_some())
+                        .unwrap_or(false));
+            if has_concrete_body {
+                handle_subscript(node, source, mode, kinds, results, scope);
+            } else {
+                handle_subscript_declaration(node, source, mode, kinds, results, scope);
+            }
         }
         "enum_entry" => {
             handle_enum_entry(node, source, mode, kinds, results, scope);
@@ -584,11 +935,48 @@ fn collect_definitions(
         "typealias_declaration" => {
             handle_typealias(node, source, mode, kinds, results, scope);
         }
+        "macro_declaration" => {
+            handle_macro(node, source, mode, kinds, results, scope);
+        }
+        "operator_declaration" => {
+            handle_operator_declaration(node, source, mode, kinds, results, scope);
+        }
+        "precedence_group_declaration" => {
+            handle_precedence_group(node, source, mode, kinds, results);
+        }
         "property_declaration" => {
             if is_let_property(node, source) {
                 handle_const(node, source, mode, kinds, results, scope);
+            } else if scope.is_empty() {
+                // Top-level var → Var kind
+                handle_var(node, source, mode, kinds, results);
             } else if kinds.contains(&DefKind::Property) {
                 handle_property(node, source, mode, results, scope);
+            }
+        }
+        "protocol_property_declaration" => {
+            if !kinds.contains(&DefKind::PropertyDeclaration) {
+                return;
+            }
+            if is_let_property(node, source) {
+                return;
+            }
+            let name_ref = extract_property_name_node(node).map(|n| node_text_ref(n, source));
+            if let Some(name_ref) = name_ref {
+                if !mode.matches_ident(name_ref) {
+                    return;
+                }
+                let own_scope = build_scope(scope, ".", name_ref);
+                let sig = first_line_of_node(node, source);
+                let signature = normalize_signature(&sig);
+                let start_row = node.start_position().row + 1;
+                let [start, end] = line_range(start_row, node);
+                results.push(DefContent {
+                    kind: DefKind::PropertyDeclaration,
+                    lines: [start, end],
+                    signature,
+                    scope: own_scope,
+                });
             }
         }
         _ => {
@@ -620,127 +1008,5 @@ fn recurse_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // --- Edge case tests ---
-
-    #[test]
-    fn test_var_not_extracted_as_const() {
-        let source = "var count = 0";
-        let defs = extract_definitions(&SwiftParser, "count", &[DefKind::Const], source);
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_empty_source() {
-        let source = "";
-        let defs = extract_definitions(&SwiftParser, "anything", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter() {
-        let source = "class MyClass {}";
-        let defs = extract_definitions(&SwiftParser, "MyClass", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    // --- Variant tests ---
-
-    #[test]
-    fn test_enum_variant_single() {
-        let source = "enum Color {\n    case red\n    case green\n}";
-        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Variant], source);
-        assert_eq!(defs.len(), 2);
-        assert_eq!(defs[0].kind, DefKind::Variant);
-        assert_eq!(defs[0].scope, "Color.red");
-        assert_eq!(defs[1].kind, DefKind::Variant);
-        assert_eq!(defs[1].scope, "Color.green");
-    }
-
-    #[test]
-    fn test_enum_variant_multiple_on_line() {
-        let source = "enum Direction {\n    case north, south, east, west\n}";
-        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Variant], source);
-        assert_eq!(defs.len(), 4);
-        assert_eq!(defs[0].scope, "Direction.north");
-        assert_eq!(defs[1].scope, "Direction.south");
-        assert_eq!(defs[2].scope, "Direction.east");
-        assert_eq!(defs[3].scope, "Direction.west");
-    }
-
-    #[test]
-    fn test_enum_variant_with_parameters() {
-        let source = "enum Barcode {\n    case upc(Int, Int, Int, Int)\n    case qrCode(String)\n}";
-        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Variant], source);
-        assert_eq!(defs.len(), 2);
-        assert_eq!(defs[0].scope, "Barcode.upc");
-        assert_eq!(defs[1].scope, "Barcode.qrCode");
-    }
-
-    #[test]
-    fn test_enum_variant_name_filter() {
-        let source = "enum Color {\n    case red\n    case blue\n}";
-        let defs = extract_definitions(&SwiftParser, "red", &[DefKind::Variant], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].scope, "Color.red");
-    }
-
-    // --- Destructor tests ---
-
-    #[test]
-    fn test_deinit() {
-        let source = "class MyClass {\n    deinit {\n        cleanup()\n    }\n}";
-        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Destructor], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Destructor);
-        assert_eq!(defs[0].scope, "MyClass.deinit");
-        assert!(defs[0].signature.starts_with("deinit"));
-    }
-
-    #[test]
-    fn test_deinit_name_filter() {
-        let source = "class MyClass {\n    deinit {\n        cleanup()\n    }\n}";
-        let defs = extract_definitions(&SwiftParser, "deinit", &[DefKind::Destructor], source);
-        assert_eq!(defs.len(), 1);
-        // Filtering by something else should return nothing
-        let defs2 = extract_definitions(&SwiftParser, "other", &[DefKind::Destructor], source);
-        assert!(defs2.is_empty());
-    }
-
-    // --- Associatedtype tests ---
-
-    #[test]
-    fn test_associatedtype() {
-        let source =
-            "protocol Container {\n    associatedtype Item\n    associatedtype Iterator\n}";
-        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Alias], source);
-        assert_eq!(defs.len(), 2);
-        assert_eq!(defs[0].kind, DefKind::Alias);
-        assert_eq!(defs[0].scope, "Container.Item");
-        assert_eq!(defs[1].scope, "Container.Iterator");
-    }
-
-    #[test]
-    fn test_associatedtype_with_constraint() {
-        let source = "protocol Container {\n    associatedtype Element: Equatable\n}";
-        let defs = extract_definitions(&SwiftParser, "", &[DefKind::Alias], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].scope, "Container.Element");
-    }
-
-    #[test]
-    fn test_associatedtype_name_filter() {
-        let source =
-            "protocol Container {\n    associatedtype Item\n    associatedtype Iterator\n}";
-        let defs = extract_definitions(&SwiftParser, "Item", &[DefKind::Alias], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].scope, "Container.Item");
     }
 }

@@ -1,0 +1,71 @@
+{"path": "tests/fixtures/swift/core.swift", "kind": "function", "scope": "topFunc", "signature": "func topFunc(x: Int) -> Bool"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "var", "scope": "globalCounter", "signature": "var globalCounter = 0"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "const", "scope": "MAX_RETRIES", "signature": "let MAX_RETRIES = 3"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "class", "scope": "NetworkManager", "signature": "class NetworkManager"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "const", "scope": "NetworkManager.maxConnections", "signature": "let maxConnections: Int"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "NetworkManager.activeConnections", "signature": "var activeConnections: Int"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "constructor", "scope": "NetworkManager.init", "signature": "init()"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "destructor", "scope": "NetworkManager.deinit", "signature": "deinit"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method", "scope": "NetworkManager.create", "signature": "static func create() -> NetworkManager"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method", "scope": "NetworkManager.connect", "signature": "func connect(host: String) -> Bool"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "struct", "scope": "NetworkManager.Config", "signature": "struct Config"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "const", "scope": "NetworkManager.Config.timeout", "signature": "let timeout: Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "NetworkManager.Config.retryCount", "signature": "var retryCount: Int"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "enum", "scope": "NetworkManager.Status", "signature": "enum Status"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "variant", "scope": "NetworkManager.Status.connected", "signature": "case connected"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "variant", "scope": "NetworkManager.Status.disconnected", "signature": "case disconnected"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method", "scope": "NetworkManager.Status.describe", "signature": "func describe() -> String"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "subscript", "scope": "NetworkManager.subscript", "signature": "subscript(index: Int) -> Int"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "struct", "scope": "Point", "signature": "struct Point"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "Point.x", "signature": "var x: Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "Point.y", "signature": "var y: Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method", "scope": "Point.distance", "signature": "func distance(to other: Point) -> Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "enum", "scope": "Direction", "signature": "enum Direction"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "variant", "scope": "Direction.north", "signature": "case north"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "variant", "scope": "Direction.south", "signature": "case south"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "variant", "scope": "Direction.east", "signature": "case east"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "variant", "scope": "Direction.west", "signature": "case west"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "protocol", "scope": "Serializable", "signature": "protocol Serializable"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "associated_type", "scope": "Serializable.SerializedData", "signature": "associatedtype SerializedData"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property_declaration", "scope": "Serializable.serializedSize", "signature": "var serializedSize: Int { get }"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method_declaration", "scope": "Serializable.serialize", "signature": "func serialize() -> Data"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "actor", "scope": "MessageQueue", "signature": "actor MessageQueue"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "MessageQueue.messages", "signature": "var messages: [String] = []"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method", "scope": "MessageQueue.enqueue", "signature": "func enqueue(_ message: String) -> Int"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "extension", "scope": "String", "signature": "extension String"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "const", "scope": "String.defaultEncoding", "signature": "let defaultEncoding = \"UTF-8\""}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "String.trimmed", "signature": "var trimmed: String {"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "method", "scope": "String.repeated", "signature": "func repeated(_ times: Int) -> String"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "struct", "scope": "Matrix", "signature": "struct Matrix"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "Matrix.grid", "signature": "var grid: [[Double]]"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "subscript", "scope": "Matrix.subscript", "signature": "subscript(row: Int, col: Int) -> Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "alias", "scope": "CompletionHandler", "signature": "typealias CompletionHandler =(Bool) -> Void"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "struct", "scope": "Vec2d", "signature": "struct Vec2d"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "Vec2d.x", "signature": "var x: Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "property", "scope": "Vec2d.y", "signature": "var y: Double"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "operator", "scope": "Vec2d.+", "signature": "static func +(lhs: Vec2d, rhs: Vec2d) -> Vec2d"}
+{"path": "tests/fixtures/swift/core.swift", "kind": "operator", "scope": "Vec2d.==", "signature": "static func ==(lhs: Vec2d, rhs: Vec2d) -> Bool"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "operator_declaration", "scope": "+++", "signature": "infix operator +++: AdditionPrecedence"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "operator_declaration", "scope": "!!!", "signature": "prefix operator !!!"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "operator_declaration", "scope": "~~~", "signature": "postfix operator ~~~"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "operator", "scope": "MultiplicativePrecedence", "signature": "precedencegroup MultiplicativePrecedence {"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "protocol", "scope": "EquatableByValue", "signature": "protocol EquatableByValue"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "operator_declaration", "scope": "EquatableByValue.==", "signature": "static func ==(lhs: Self, rhs: Self) -> Bool"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "operator_declaration", "scope": "EquatableByValue.!=", "signature": "static func !=(lhs: Self, rhs: Self) -> Bool"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "method_declaration", "scope": "EquatableByValue.normalize", "signature": "func normalize() -> Self"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "protocol", "scope": "Table", "signature": "protocol Table"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "subscript_declaration", "scope": "Table.subscript", "signature": "subscript(row: Int) -> String"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "protocol", "scope": "Factory", "signature": "protocol Factory"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "constructor_declaration", "scope": "Factory.init", "signature": "init(name: String)"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "macro", "scope": "stringify", "signature": "macro stringify<T>(_ value: T) -> String"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "actor", "scope": "TaskRunner", "signature": "actor TaskRunner"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "constructor", "scope": "TaskRunner.init", "signature": "init()"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "function", "scope": "factory", "signature": "func factory()"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "class", "scope": "AsyncService", "signature": "class AsyncService"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "method", "scope": "AsyncService.helper", "signature": "static func helper() -> Void"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "method", "scope": "AsyncService.process", "signature": "func process() async throws -> Data"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "function", "scope": "process", "signature": "func process()"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "method", "scope": "Alpha.process", "signature": "func process()"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/swift/edge.swift", "kind": "method", "scope": "Beta.process", "signature": "func process()"}

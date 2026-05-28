@@ -1,0 +1,150 @@
+{"path": "tests/fixtures/c/core.c", "kind": "function", "scope": "compute", "signature": "int compute(int n)"}
+{"path": "tests/fixtures/c/core.c", "kind": "function", "scope": "helper", "signature": "static void helper(void)"}
+{"path": "tests/fixtures/c/core.c", "kind": "function", "scope": "dup_str", "signature": "char *dup_str(const char *s)"}
+{"path": "tests/fixtures/c/core.c", "kind": "function", "scope": "process", "signature": "int process(int x)"}
+{"path": "tests/fixtures/c/core.c", "kind": "struct", "scope": "Vec2", "signature": "struct Vec2"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Vec2::dx", "signature": "double dx;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Vec2::dy", "signature": "double dy;"}
+{"path": "tests/fixtures/c/core.c", "kind": "struct", "scope": "Point", "signature": "struct Point"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Point::x", "signature": "double x;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Point::y", "signature": "double y;"}
+{"path": "tests/fixtures/c/core.c", "kind": "struct", "scope": "Config", "signature": "struct Config"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Config::timeout", "signature": "int timeout;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Config::retries", "signature": "int retries;"}
+{"path": "tests/fixtures/c/core.c", "kind": "struct", "scope": "Outer", "signature": "struct Outer"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::data", "signature": "struct Inner { int a; int b; } data;"}
+{"path": "tests/fixtures/c/core.c", "kind": "struct", "scope": "Inner", "signature": "struct Inner"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::Inner::a", "signature": "int a;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::Inner::b", "signature": "int b;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::anon", "signature": "struct { int x; int y; } anon;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::x", "signature": "int x;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::y", "signature": "int y;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::tagged", "signature": "union { int i; float f; } tagged;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::i", "signature": "int i;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Outer::f", "signature": "float f;"}
+{"path": "tests/fixtures/c/core.c", "kind": "union", "scope": "TagVal", "signature": "union TagVal"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "TagVal::num", "signature": "int num;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "TagVal::val", "signature": "float val;"}
+{"path": "tests/fixtures/c/core.c", "kind": "union", "scope": "Value", "signature": "union Value"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Value::i", "signature": "int i;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Value::f", "signature": "float f;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Value::d", "signature": "double d;"}
+{"path": "tests/fixtures/c/core.c", "kind": "struct", "scope": "Container", "signature": "struct Container"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Container::type", "signature": "int type;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Container::data", "signature": "union Data { int int_val; float float_val; } data;"}
+{"path": "tests/fixtures/c/core.c", "kind": "union", "scope": "Data", "signature": "union Data"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Container::Data::int_val", "signature": "int int_val;"}
+{"path": "tests/fixtures/c/core.c", "kind": "field", "scope": "Container::Data::float_val", "signature": "float float_val;"}
+{"path": "tests/fixtures/c/core.c", "kind": "enum", "scope": "Dir", "signature": "enum Dir {"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Dir::NORTH", "signature": "NORTH"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Dir::SOUTH", "signature": "SOUTH"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Dir::EAST", "signature": "EAST"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Dir::WEST", "signature": "WEST"}
+{"path": "tests/fixtures/c/core.c", "kind": "enum", "scope": "Color", "signature": "enum Color {"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Color::RED", "signature": "RED"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Color::GREEN", "signature": "GREEN"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Color::BLUE", "signature": "BLUE"}
+{"path": "tests/fixtures/c/core.c", "kind": "enum", "scope": "Status", "signature": "enum Status {"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Status::OK", "signature": "OK = 0"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Status::ERROR", "signature": "ERROR = 1"}
+{"path": "tests/fixtures/c/core.c", "kind": "alias", "scope": "Handle", "signature": "typedef int Handle;"}
+{"path": "tests/fixtures/c/core.c", "kind": "alias", "scope": "StatusCode", "signature": "typedef int StatusCode;"}
+{"path": "tests/fixtures/c/core.c", "kind": "alias", "scope": "StringPtr", "signature": "typedef char *StringPtr;"}
+{"path": "tests/fixtures/c/core.c", "kind": "alias", "scope": "Node", "signature": "typedef struct Node Node;"}
+{"path": "tests/fixtures/c/core.c", "kind": "enum", "scope": "Switch", "signature": "typedef enum {"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Switch::SWITCH_ON", "signature": "SWITCH_ON"}
+{"path": "tests/fixtures/c/core.c", "kind": "variant", "scope": "Switch::SWITCH_OFF", "signature": "SWITCH_OFF"}
+{"path": "tests/fixtures/c/core.c", "kind": "const", "scope": "LIMIT", "signature": "const int LIMIT = 100;"}
+{"path": "tests/fixtures/c/core.c", "kind": "const", "scope": "MAX_SIZE", "signature": "const int MAX_SIZE = 1024;"}
+{"path": "tests/fixtures/c/core.c", "kind": "const", "scope": "MSG", "signature": "const char *MSG = \"hello\";"}
+{"path": "tests/fixtures/c/core.c", "kind": "macro", "scope": "DEBUG", "signature": "#define DEBUG 1"}
+{"path": "tests/fixtures/c/core.c", "kind": "var", "scope": "refs", "signature": "static int refs = 0;"}
+{"path": "tests/fixtures/c/core.c", "kind": "var", "scope": "file_count", "signature": "static int file_count = 0;"}
+{"path": "tests/fixtures/c/core.c", "kind": "var", "scope": "file_name", "signature": "static char *file_name;"}
+{"path": "tests/fixtures/c/core.c", "kind": "function", "scope": "withLocalDefs", "signature": "void withLocalDefs(void)"}
+{"path": "tests/fixtures/c/core.h", "kind": "macro", "scope": "CORE_H_", "signature": "#define CORE_H_"}
+{"path": "tests/fixtures/c/core.h", "kind": "function_declaration", "scope": "core_init", "signature": "int core_init(int mode);"}
+{"path": "tests/fixtures/c/core.h", "kind": "function_declaration", "scope": "core_helper", "signature": "static void core_helper(int x);"}
+{"path": "tests/fixtures/c/core.h", "kind": "function_declaration", "scope": "core_dup_str", "signature": "char *core_dup_str(const char *s);"}
+{"path": "tests/fixtures/c/core.h", "kind": "struct", "scope": "CoreVec2", "signature": "struct CoreVec2"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CoreVec2::dx", "signature": "double dx;"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CoreVec2::dy", "signature": "double dy;"}
+{"path": "tests/fixtures/c/core.h", "kind": "struct", "scope": "CorePoint", "signature": "struct CorePoint"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CorePoint::x", "signature": "double x;"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CorePoint::y", "signature": "double y;"}
+{"path": "tests/fixtures/c/core.h", "kind": "struct", "scope": "CoreConfig", "signature": "struct CoreConfig"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CoreConfig::timeout", "signature": "int timeout;"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CoreConfig::retries", "signature": "int retries;"}
+{"path": "tests/fixtures/c/core.h", "kind": "union", "scope": "CoreTagVal", "signature": "union CoreTagVal"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CoreTagVal::num", "signature": "int num;"}
+{"path": "tests/fixtures/c/core.h", "kind": "field", "scope": "CoreTagVal::val", "signature": "float val;"}
+{"path": "tests/fixtures/c/core.h", "kind": "enum", "scope": "CoreDir", "signature": "enum CoreDir {"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreDir::CORE_NORTH", "signature": "CORE_NORTH"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreDir::CORE_SOUTH", "signature": "CORE_SOUTH"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreDir::CORE_EAST", "signature": "CORE_EAST"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreDir::CORE_WEST", "signature": "CORE_WEST"}
+{"path": "tests/fixtures/c/core.h", "kind": "enum", "scope": "CoreColor", "signature": "enum CoreColor {"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreColor::CORE_RED", "signature": "CORE_RED"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreColor::CORE_GREEN", "signature": "CORE_GREEN"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreColor::CORE_BLUE", "signature": "CORE_BLUE"}
+{"path": "tests/fixtures/c/core.h", "kind": "alias", "scope": "CoreHandle", "signature": "typedef int CoreHandle;"}
+{"path": "tests/fixtures/c/core.h", "kind": "alias", "scope": "CoreStatusCode", "signature": "typedef int CoreStatusCode;"}
+{"path": "tests/fixtures/c/core.h", "kind": "alias", "scope": "CoreStringPtr", "signature": "typedef char *CoreStringPtr;"}
+{"path": "tests/fixtures/c/core.h", "kind": "alias", "scope": "CoreNode", "signature": "typedef struct CoreNode CoreNode;"}
+{"path": "tests/fixtures/c/core.h", "kind": "enum", "scope": "CoreSwitch", "signature": "typedef enum {"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreSwitch::CORE_SWITCH_ON", "signature": "CORE_SWITCH_ON"}
+{"path": "tests/fixtures/c/core.h", "kind": "variant", "scope": "CoreSwitch::CORE_SWITCH_OFF", "signature": "CORE_SWITCH_OFF"}
+{"path": "tests/fixtures/c/core.h", "kind": "const", "scope": "CORE_LIMIT", "signature": "const int CORE_LIMIT = 100;"}
+{"path": "tests/fixtures/c/core.h", "kind": "const", "scope": "CORE_MAX_SIZE", "signature": "const int CORE_MAX_SIZE = 1024;"}
+{"path": "tests/fixtures/c/core.h", "kind": "macro", "scope": "CORE_DEBUG", "signature": "#define CORE_DEBUG 1"}
+{"path": "tests/fixtures/c/core.h", "kind": "var_declaration", "scope": "core_global_count", "signature": "extern int core_global_count;"}
+{"path": "tests/fixtures/c/core.h", "kind": "const_declaration", "scope": "core_app_name", "signature": "extern const char *core_app_name;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function_declaration", "scope": "init", "signature": "int init(void);"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function", "scope": "init", "signature": "int init(void)"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function_declaration", "scope": "foo", "signature": "int foo(void);"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function", "scope": "foo", "signature": "int foo(void)"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function", "scope": "add", "signature": "int add(int a, int b)"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function", "scope": "helper", "signature": "static void helper(int x)"}
+{"path": "tests/fixtures/c/edge.c", "kind": "const", "scope": "CONF_VERSION", "signature": "static const int CONF_VERSION = 2;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "const", "scope": "VERSION", "signature": "static const int VERSION = 2;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "struct_declaration", "scope": "Link", "signature": "struct Link"}
+{"path": "tests/fixtures/c/edge.c", "kind": "union_declaration", "scope": "Payload", "signature": "union Payload"}
+{"path": "tests/fixtures/c/edge.c", "kind": "enum_declaration", "scope": "Flag", "signature": "enum Flag"}
+{"path": "tests/fixtures/c/edge.c", "kind": "const_declaration", "scope": "MAX_LIMIT", "signature": "extern const int MAX_LIMIT;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "var_declaration", "scope": "total", "signature": "extern int total;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "struct", "scope": "Mixed", "signature": "struct Mixed"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "Mixed::kind", "signature": "int kind;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "Mixed::data", "signature": "union InnerData { int int_val; float float_val; } data;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "union", "scope": "InnerData", "signature": "union InnerData"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "Mixed::InnerData::int_val", "signature": "int int_val;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "Mixed::InnerData::float_val", "signature": "float float_val;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "struct", "scope": "PairT", "signature": "typedef struct Pair { int first; int second; } PairT;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "PairT::first", "signature": "int first;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "PairT::second", "signature": "int second;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "union", "scope": "AnonHandle", "signature": "typedef union {"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "AnonHandle::ptr", "signature": "void *ptr;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "AnonHandle::handle", "signature": "int handle;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "struct", "scope": "WithMacro", "signature": "struct WithMacro"}
+{"path": "tests/fixtures/c/edge.c", "kind": "macro", "scope": "INNER_MACRO", "signature": "#define INNER_MACRO 42"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "WithMacro::x", "signature": "int x;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "union", "scope": "UnionMacro", "signature": "union UnionMacro"}
+{"path": "tests/fixtures/c/edge.c", "kind": "macro", "scope": "UNION_MACRO", "signature": "#define UNION_MACRO 1"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "UnionMacro::i", "signature": "int i;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "field", "scope": "UnionMacro::f", "signature": "float f;"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function", "scope": "outer_func", "signature": "void outer_func(void)"}
+{"path": "tests/fixtures/c/edge.c", "kind": "function", "scope": "multi_line_func", "signature": "int multi_line_func(int a, int b, int c)"}
+{"path": "tests/fixtures/c/edge.h", "kind": "macro", "scope": "EDGE_H_", "signature": "#define EDGE_H_"}
+{"path": "tests/fixtures/c/edge.h", "kind": "function_declaration", "scope": "header_init", "signature": "int header_init(void);"}
+{"path": "tests/fixtures/c/edge.h", "kind": "function_declaration", "scope": "header_cleanup", "signature": "void header_cleanup(int code);"}
+{"path": "tests/fixtures/c/edge.h", "kind": "function_declaration", "scope": "get_version", "signature": "const char *get_version(void);"}
+{"path": "tests/fixtures/c/edge.h", "kind": "struct_declaration", "scope": "ListNode", "signature": "struct ListNode"}
+{"path": "tests/fixtures/c/edge.h", "kind": "struct_declaration", "scope": "FileHandle", "signature": "struct FileHandle"}
+{"path": "tests/fixtures/c/edge.h", "kind": "struct", "scope": "HeaderConfig", "signature": "struct HeaderConfig"}
+{"path": "tests/fixtures/c/edge.h", "kind": "field", "scope": "HeaderConfig::max_retries", "signature": "int max_retries;"}
+{"path": "tests/fixtures/c/edge.h", "kind": "field", "scope": "HeaderConfig::timeout_ms", "signature": "int timeout_ms;"}
+{"path": "tests/fixtures/c/edge.h", "kind": "alias", "scope": "StatusCode", "signature": "typedef int StatusCode;"}
+{"path": "tests/fixtures/c/edge.h", "kind": "alias", "scope": "ListIter", "signature": "typedef struct ListNode *ListIter;"}
+{"path": "tests/fixtures/c/edge.h", "kind": "macro", "scope": "HEADER_VERSION", "signature": "#define HEADER_VERSION \"1.0\""}
+{"path": "tests/fixtures/c/edge.h", "kind": "macro", "scope": "MAX_HEADER_SIZE", "signature": "#define MAX_HEADER_SIZE 4096"}
+{"path": "tests/fixtures/c/edge.h", "kind": "var_declaration", "scope": "global_count", "signature": "extern int global_count;"}
+{"path": "tests/fixtures/c/edge.h", "kind": "const_declaration", "scope": "app_name", "signature": "extern const char *app_name;"}

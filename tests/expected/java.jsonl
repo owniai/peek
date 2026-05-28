@@ -1,0 +1,63 @@
+{"path": "tests/fixtures/java/core.java", "kind": "package", "scope": "com.example", "signature": "package com.example;"}
+{"path": "tests/fixtures/java/core.java", "kind": "class", "scope": "MyClass", "signature": "public class MyClass"}
+{"path": "tests/fixtures/java/core.java", "kind": "field", "scope": "MyClass.count", "signature": "private int count;"}
+{"path": "tests/fixtures/java/core.java", "kind": "field", "scope": "MyClass.field", "signature": "private int field;"}
+{"path": "tests/fixtures/java/core.java", "kind": "const", "scope": "MyClass.MAX_SIZE", "signature": "public static final int MAX_SIZE = 100;"}
+{"path": "tests/fixtures/java/core.java", "kind": "constructor", "scope": "MyClass.MyClass", "signature": "public MyClass(int count)"}
+{"path": "tests/fixtures/java/core.java", "kind": "method", "scope": "MyClass.getCount", "signature": "public int getCount()"}
+{"path": "tests/fixtures/java/core.java", "kind": "class", "scope": "MyClass.Builder", "signature": "static class Builder"}
+{"path": "tests/fixtures/java/core.java", "kind": "field", "scope": "MyClass.Builder.name", "signature": "private String name;"}
+{"path": "tests/fixtures/java/core.java", "kind": "interface", "scope": "Drawable", "signature": "interface Drawable"}
+{"path": "tests/fixtures/java/core.java", "kind": "method_declaration", "scope": "Drawable.draw", "signature": "void draw()"}
+{"path": "tests/fixtures/java/core.java", "kind": "enum", "scope": "Status", "signature": "enum Status"}
+{"path": "tests/fixtures/java/core.java", "kind": "variant", "scope": "Status.ACTIVE", "signature": "ACTIVE"}
+{"path": "tests/fixtures/java/core.java", "kind": "variant", "scope": "Status.INACTIVE", "signature": "INACTIVE"}
+{"path": "tests/fixtures/java/core.java", "kind": "record", "scope": "Point", "signature": "record Point(int x, int y)"}
+{"path": "tests/fixtures/java/core.java", "kind": "annotation", "scope": "CacheConfig", "signature": "@interface CacheConfig {"}
+{"path": "tests/fixtures/java/core.java", "kind": "method_declaration", "scope": "CacheConfig.value", "signature": "String value();"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "ThrowsAbstract", "signature": "abstract class ThrowsAbstract"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method_declaration", "scope": "ThrowsAbstract.readData", "signature": "abstract void readData() throws IOException, SQLException"}
+{"path": "tests/fixtures/java/edge.java", "kind": "interface", "scope": "Processor", "signature": "interface Processor"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method_declaration", "scope": "Processor.process", "signature": "void process(String input) throws IllegalArgumentException"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "AnnotatedClass", "signature": "@Deprecated class AnnotatedClass"}
+{"path": "tests/fixtures/java/edge.java", "kind": "interface", "scope": "AnnotatedInterface", "signature": "@FunctionalInterface interface AnnotatedInterface"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method_declaration", "scope": "AnnotatedInterface.compute", "signature": "void compute()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "enum", "scope": "Color", "signature": "enum Color"}
+{"path": "tests/fixtures/java/edge.java", "kind": "variant", "scope": "Color.RED", "signature": "RED"}
+{"path": "tests/fixtures/java/edge.java", "kind": "variant", "scope": "Color.GREEN", "signature": "GREEN"}
+{"path": "tests/fixtures/java/edge.java", "kind": "variant", "scope": "Color.BLUE", "signature": "BLUE"}
+{"path": "tests/fixtures/java/edge.java", "kind": "constructor", "scope": "Color.Color", "signature": "private Color()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "interface", "scope": "Renderable", "signature": "interface Renderable"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method_declaration", "scope": "Renderable.render", "signature": "void render()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Renderable.resize", "signature": "default void resize()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Renderable.factory", "signature": "static void factory()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "annotation", "scope": "Config", "signature": "@interface Config {"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method_declaration", "scope": "Config.ttl", "signature": "int ttl() default 3600;"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "Calculator", "signature": "class Calculator"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Calculator.add", "signature": "int add(int a, int b)"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Calculator.add", "signature": "double add(double a, double b)"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "L1", "signature": "class L1"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "L1.L2", "signature": "class L2"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "L1.L2.L3", "signature": "class L3"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "L1.L2.L3.deepMethod", "signature": "void deepMethod()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "BodyExclusion", "signature": "class BodyExclusion"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "BodyExclusion.methodWithLocal", "signature": "void methodWithLocal()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Alpha.process", "signature": "void process()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Beta.process", "signature": "void process()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "Container", "signature": "class Container"}
+{"path": "tests/fixtures/java/edge.java", "kind": "interface", "scope": "Container.Serializable", "signature": "interface Serializable"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method_declaration", "scope": "Container.Serializable.serialize", "signature": "byte[] serialize()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "Holder", "signature": "class Holder"}
+{"path": "tests/fixtures/java/edge.java", "kind": "enum", "scope": "Holder.Priority", "signature": "enum Priority"}
+{"path": "tests/fixtures/java/edge.java", "kind": "variant", "scope": "Holder.Priority.LOW", "signature": "LOW"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "Box", "signature": "class Box"}
+{"path": "tests/fixtures/java/edge.java", "kind": "record", "scope": "Box.Pair", "signature": "record Pair(String first, String second)"}
+{"path": "tests/fixtures/java/edge.java", "kind": "class", "scope": "MultiField", "signature": "class MultiField"}
+{"path": "tests/fixtures/java/edge.java", "kind": "field", "scope": "MultiField.x", "signature": "int x, y;"}
+{"path": "tests/fixtures/java/edge.java", "kind": "field", "scope": "MultiField.y", "signature": "int x, y;"}
+{"path": "tests/fixtures/java/edge.java", "kind": "record", "scope": "Range", "signature": "public record Range(int min, int max)"}
+{"path": "tests/fixtures/java/edge.java", "kind": "method", "scope": "Range.span", "signature": "public int span()"}
+{"path": "tests/fixtures/java/edge.java", "kind": "interface", "scope": "Settings", "signature": "interface Settings"}
+{"path": "tests/fixtures/java/edge.java", "kind": "const", "scope": "Settings.NAME", "signature": "String NAME = \"default\";"}

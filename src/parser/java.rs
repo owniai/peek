@@ -5,15 +5,19 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "java";
+pub(crate) const EXTENSIONS: &[&str] = &["java"];
+pub(crate) const ALIASES: &[&str] = &[];
+
 pub struct JavaParser;
 
 impl LanguageParser for JavaParser {
     fn language(&self) -> &'static str {
-        "java"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".java"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
@@ -21,7 +25,10 @@ impl LanguageParser for JavaParser {
             DefKind::Class,
             DefKind::Interface,
             DefKind::Enum,
+            DefKind::Record,
+            DefKind::Module,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Constructor,
             DefKind::Const,
             DefKind::Field,
@@ -239,11 +246,12 @@ fn collect_definitions(
     scope: &str,
 ) {
     match node.kind() {
-        "class_declaration" | "interface_declaration" => {
-            let def_kind = if node.kind() == "class_declaration" {
-                DefKind::Class
-            } else {
-                DefKind::Interface
+        "class_declaration" | "interface_declaration" | "record_declaration" => {
+            let def_kind = match node.kind() {
+                "class_declaration" => DefKind::Class,
+                "interface_declaration" => DefKind::Interface,
+                "record_declaration" => DefKind::Record,
+                _ => unreachable!(),
             };
             let own_scope = build_scope_from_node(node, source, scope, ".");
             if kinds.contains(&def_kind) {
@@ -266,28 +274,40 @@ fn collect_definitions(
             if kinds.contains(&DefKind::Variant) {
                 handle_enum_constant(node, source, mode, results, scope);
             }
+            // Recurse into constant-specific class body if present
+            if let Some(body) = node.child_by_field_name("body") {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = node_text_ref(name_node, source);
+                    let own_scope = build_scope(scope, ".", name);
+                    recurse_children(body, source, mode, kinds, results, &own_scope);
+                }
+            }
         }
         "annotation_type_declaration" => {
             if kinds.contains(&DefKind::Annotation) {
                 handle_annotation_type(node, source, mode, results, scope);
             }
-            // Recurse into annotation_type_body for nested types
+            // Recurse into annotation_type_body for nested types and annotation elements
             if let Some(body) = node.child_by_field_name("body") {
                 let own_scope = build_scope_from_node(node, source, scope, ".");
                 recurse_children(body, source, mode, kinds, results, &own_scope);
             }
         }
+        "annotation_type_element_declaration" => {
+            if kinds.contains(&DefKind::MethodDeclaration) {
+                handle_annotation_element(node, source, mode, results, scope);
+            }
+        }
         "method_declaration" => {
-            if kinds.contains(&DefKind::Method) {
+            let has_body = node.child_by_field_name("body").is_some();
+            let def_kind = if has_body {
+                DefKind::Method
+            } else {
+                DefKind::MethodDeclaration
+            };
+            if kinds.contains(&def_kind) {
                 let callable_scope = build_scope_from_node(node, source, scope, ".");
-                handle_callable(
-                    node,
-                    source,
-                    mode,
-                    DefKind::Method,
-                    results,
-                    &callable_scope,
-                );
+                handle_callable(node, source, mode, def_kind, results, &callable_scope);
             }
             // Do not recurse into method body
         }
@@ -330,6 +350,11 @@ fn collect_definitions(
                         });
                     }
                 }
+            }
+        }
+        "module_declaration" => {
+            if kinds.contains(&DefKind::Module) {
+                handle_module(node, source, mode, results);
             }
         }
         // Skip: not definitions we extract
@@ -414,349 +439,58 @@ fn handle_annotation_type(
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // === Meta tests ===
-
-    // === Edge case tests ===
-
-    #[test]
-    fn test_extract_with_empty_source() {
-        let results = extract_definitions(&JavaParser, "anything", DefKind::all(), "");
-        assert!(results.is_empty());
+/// Handle a Java module declaration in module-info.java (Module kind).
+fn handle_module(node: Node, source: &str, mode: &MatchMode, results: &mut Vec<DefContent>) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name = node_text(name_node, source);
+    if !mode.matches_ident(&name) {
+        return;
     }
+    let signature = match node.child_by_field_name("body") {
+        Some(body) => flatten_bytes(node.start_byte(), body.start_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(node, source)),
+        None => first_line_of_node(node, source),
+    };
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+    results.push(DefContent {
+        kind: DefKind::Module,
+        lines: [start, end],
+        signature,
+        scope: name,
+    });
+}
 
-    #[test]
-    fn test_extract_with_malformed_source() {
-        let results = extract_definitions(&JavaParser, "anything", DefKind::all(), "{{{{class");
-        assert!(results.len() <= 10);
+/// Handle a Java annotation type element (MethodDeclaration kind).
+/// These are the method-like declarations inside @interface bodies,
+/// e.g. `String value();` or `int ttl() default 3600;`.
+fn handle_annotation_element(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
     }
-
-    #[test]
-    fn test_missing_body_fallback() {
-        // Incomplete class (no braces) -- tree-sitter may produce ERROR or partial parse
-        let results =
-            extract_definitions(&JavaParser, "MyClass", &[DefKind::Class], "class MyClass");
-        // Just verify no panic/crash
-        assert!(results.len() <= 1);
-    }
-
-    #[test]
-    fn test_annotation_in_signature() {
-        let src = "@Deprecated\npublic class MyClass {}";
-        let results = extract_definitions(&JavaParser, "MyClass", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("@Deprecated"));
-        assert!(results[0].signature.contains("public class MyClass"));
-    }
-
-    #[test]
-    fn test_functional_interface_annotation() {
-        let src = "@FunctionalInterface\ninterface Processor { void process(); }";
-        let results = extract_definitions(&JavaParser, "Processor", &[DefKind::Interface], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("@FunctionalInterface"));
-    }
-
-    #[test]
-    fn test_class_with_complex_generics() {
-        let src = "public class Container<T extends Comparable<T>> {}";
-        let results = extract_definitions(&JavaParser, "Container", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert!(
-            results[0]
-                .signature
-                .contains("Container<T extends Comparable<T>>")
-        );
-    }
-
-    #[test]
-    fn test_enum_with_constructor_not_extracted_as_class() {
-        let src = "enum Color { RED; private Color() {} }";
-        let color = extract_definitions(&JavaParser, "Color", &[DefKind::Enum], src);
-        assert_eq!(color.len(), 1);
-        // Constructor "Color" is constructor_declaration, not class_declaration
-        let class_color = extract_definitions(&JavaParser, "Color", &[DefKind::Class], src);
-        assert!(class_color.is_empty());
-    }
-
-    #[test]
-    fn test_package_and_import_skipped() {
-        let src = "package com.example;\nimport java.util.List;\nclass App {}";
-        // Package is now extracted as Package kind, but import is still skipped
-        let pkg = extract_definitions(&JavaParser, "com.example", &[DefKind::Package], src);
-        assert_eq!(pkg.len(), 1);
-        assert_eq!(pkg[0].kind, DefKind::Package);
-        assert_eq!(pkg[0].scope, "com.example");
-
-        // Import is still not extracted
-        let imp = extract_definitions(&JavaParser, "List", DefKind::all(), src);
-        assert!(imp.is_empty());
-
-        let app = extract_definitions(&JavaParser, "App", &[DefKind::Class], src);
-        assert_eq!(app.len(), 1);
-    }
-
-    #[test]
-    fn test_annotation_type_extracted_as_annotation() {
-        let src = "@interface MyAnnotation { String value(); }";
-        let results = extract_definitions(&JavaParser, "MyAnnotation", &[DefKind::Annotation], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Annotation);
-        assert_eq!(results[0].scope, "MyAnnotation");
-        assert!(results[0].signature.contains("@interface MyAnnotation"));
-    }
-
-    #[test]
-    fn test_multi_line_class_signature() {
-        let src = "public\nabstract\nclass Shape\n{ }";
-        let results = extract_definitions(&JavaParser, "Shape", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert_eq!(results[0].signature, "public abstract class Shape");
-    }
-
-    #[test]
-    fn test_multi_line_method_signature() {
-        let src =
-            "class Foo {\n  @Override\n  public void\n  process(\n    String input\n  ) {}\n}";
-        let results = extract_definitions(&JavaParser, "process", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert!(results[0].signature.contains("@Override"));
-        assert!(
-            results[0]
-                .signature
-                .contains("public void process(String input)")
-        );
-    }
-
-    #[test]
-    fn test_multiple_classes_same_name_different_scope() {
-        let src = "class Inner {} class Outer { class Inner {} }";
-        let results = extract_definitions(&JavaParser, "Inner", &[DefKind::Class], src);
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().any(|r| r.scope == "Inner"));
-        assert!(results.iter().any(|r| r.scope == "Outer.Inner"));
-    }
-
-    #[test]
-    fn test_method_name_missing_no_crash() {
-        let results = extract_definitions(
-            &JavaParser,
-            "anything",
-            &[DefKind::Function],
-            "class Foo { void () {} }",
-        );
-        assert!(results.len() <= 2);
-    }
-
-    #[test]
-    fn test_no_extract_from_method_body() {
-        let results = extract_definitions(
-            &JavaParser,
-            "InnerClass",
-            &[DefKind::Class],
-            "class Foo { void method() { class InnerClass {} } }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_class_not_method() {
-        let results = extract_definitions(
-            &JavaParser,
-            "getField",
-            &[DefKind::Class],
-            "class Foo { int getField() { return 0; } }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_method_same_name_as_class() {
-        let results = extract_definitions(
-            &JavaParser,
-            "Foo",
-            &[DefKind::Constructor],
-            "class Foo { void Foo() {} }",
-        );
-        // "void Foo()" is a method_declaration (has return type void), not constructor_declaration
-        // So it should not match Constructor kind filter
-        assert!(
-            results.is_empty(),
-            "void Foo() is a method (has return type), not a constructor"
-        );
-    }
-
-    #[test]
-    fn test_non_static_final_field_skipped() {
-        let results = extract_definitions(
-            &JavaParser,
-            "field",
-            &[DefKind::Const],
-            "class Foo { private int field; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_static_only_field_skipped() {
-        let results = extract_definitions(
-            &JavaParser,
-            "count",
-            &[DefKind::Const],
-            "class Foo { static int count = 0; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_final_only_field_skipped() {
-        let results = extract_definitions(
-            &JavaParser,
-            "name",
-            &[DefKind::Const],
-            "class Foo { final String name; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_enum_constant_extracted_as_variant() {
-        let results = extract_definitions(
-            &JavaParser,
-            "RED",
-            &[DefKind::Variant],
-            "enum Color { RED, GREEN, BLUE }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Variant);
-        assert_eq!(results[0].scope, "Color.RED");
-    }
-
-    #[test]
-    fn test_enum_constant_not_extracted_as_const() {
-        let results = extract_definitions(
-            &JavaParser,
-            "RED",
-            &[DefKind::Const],
-            "enum Color { RED, GREEN, BLUE }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_annotation_type_not_extracted_const() {
-        let results = extract_definitions(
-            &JavaParser,
-            "value",
-            &[DefKind::Const],
-            "@interface MyAnnotation { String value() default \"\"; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    // ============================================================
-    // Field extraction tests (non-static-final fields as Field kind)
-    // ============================================================
-
-    #[test]
-    fn plain_field_extracted_as_field() {
-        let results = extract_definitions(
-            &JavaParser,
-            "field",
-            &[DefKind::Field],
-            "class Foo { private int field; }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-        assert_eq!(results[0].scope, "Foo.field");
-    }
-
-    #[test]
-    fn static_field_extracted_as_field_not_static() {
-        // Static modifier on class fields does NOT make them Static kind (rule 5)
-        let results = extract_definitions(
-            &JavaParser,
-            "count",
-            &[DefKind::Field],
-            "class Foo { static int count = 0; }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-        assert_eq!(results[0].scope, "Foo.count");
-    }
-
-    #[test]
-    fn final_field_extracted_as_field() {
-        let results = extract_definitions(
-            &JavaParser,
-            "name",
-            &[DefKind::Field],
-            "class Foo { final String name; }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-    }
-
-    #[test]
-    fn static_final_field_still_const_not_field() {
-        // Static final fields remain Const kind, not Field kind
-        let results = extract_definitions(
-            &JavaParser,
-            "MAX",
-            &[DefKind::Field],
-            "class Foo { static final int MAX = 100; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn multiple_fields_in_one_declaration() {
-        // `int x, y;` should extract both x and y as separate Field definitions
-        let results = extract_definitions(
-            &JavaParser,
-            "x",
-            &[DefKind::Field],
-            "class Foo { int x, y; }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "Foo.x");
-
-        let results = extract_definitions(
-            &JavaParser,
-            "y",
-            &[DefKind::Field],
-            "class Foo { int x, y; }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "Foo.y");
-    }
-
-    #[test]
-    fn field_kind_filter_excludes_class() {
-        let results = extract_definitions(
-            &JavaParser,
-            "field",
-            &[DefKind::Class],
-            "class Foo { private int field; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn field_in_inner_class() {
-        let results = extract_definitions(
-            &JavaParser,
-            "name",
-            &[DefKind::Field],
-            "class Foo { class Builder { private String name; } }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "Foo.Builder.name");
-    }
+    let own_scope = build_scope(scope, ".", name_ref);
+    // Signature: the full element declaration up to the semicolon
+    let signature = normalize_signature(&first_line_of_node(node, source));
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+    results.push(DefContent {
+        kind: DefKind::MethodDeclaration,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
 }

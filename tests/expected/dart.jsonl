@@ -1,0 +1,67 @@
+{"path": "tests/fixtures/dart/core.dart", "kind": "module", "scope": "my_lib", "signature": "library my_lib;"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "function", "scope": "topFunc", "signature": "void topFunc(String msg)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "var", "scope": "counter", "signature": "counter = 0"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "const", "scope": "MAX_LIMIT", "signature": "MAX_LIMIT = 100"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "alias", "scope": "Callback", "signature": "typedef Callback = void Function(String);"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "class", "scope": "UserService", "signature": "@deprecated class UserService"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "field", "scope": "UserService.role", "signature": "role"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "constructor", "scope": "UserService.UserService", "signature": "UserService(this.role)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "constructor", "scope": "UserService.admin", "signature": "UserService.admin() : role = 'admin'"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "constructor", "scope": "UserService.guest", "signature": "factory UserService.guest()"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method", "scope": "UserService.greet", "signature": "String greet(String greeting)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "getter", "scope": "UserService.displayName", "signature": "String get displayName"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "setter", "scope": "UserService.displayName", "signature": "set displayName(String value)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "operator", "scope": "UserService.operator==", "signature": "bool operator ==(Object other)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "enum", "scope": "Status", "signature": "enum Status"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "variant", "scope": "Status.active", "signature": "active"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "mixin", "scope": "Loggable", "signature": "mixin Loggable"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method", "scope": "Loggable.log", "signature": "void log(String msg)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "class", "scope": "Serializable", "signature": "interface class Serializable"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "interface", "scope": "Serializable", "signature": "interface class Serializable"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "extension", "scope": "StringExt", "signature": "extension StringExt on String"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method", "scope": "StringExt.repeated", "signature": "String repeated(int n)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "extension_type", "scope": "Email", "signature": "extension type Email(String value)"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "getter", "scope": "Email.domain", "signature": "String get domain"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "class", "scope": "BaseProcessor", "signature": "abstract class BaseProcessor"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method_declaration", "scope": "BaseProcessor.process", "signature": "void process()"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method", "scope": "BaseProcessor.describe", "signature": "String describe()"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "function", "scope": "process", "signature": "void process()"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method", "scope": "Alpha.process", "signature": "void process()"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/dart/core.dart", "kind": "method", "scope": "Beta.process", "signature": "void process()"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Draggable", "signature": "mixin class Draggable"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "mixin", "scope": "Draggable", "signature": "mixin class Draggable"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "method", "scope": "Draggable.drag", "signature": "void drag()"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Comparable", "signature": "abstract interface class Comparable<T>"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "interface", "scope": "Comparable", "signature": "abstract interface class Comparable<T>"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "method_declaration", "scope": "Comparable.compareTo", "signature": "int compareTo(T other)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Matrix", "signature": "class Matrix"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "operator", "scope": "Matrix.operator[]", "signature": "int operator [](int i)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "operator", "scope": "Matrix.operator[]=", "signature": "void operator []=(int i, int v)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Flags", "signature": "class Flags"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "operator", "scope": "Flags.operator~", "signature": "int operator ~()"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Vector", "signature": "class Vector"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "operator", "scope": "Vector.operator+", "signature": "Vector operator +(Vector other)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Money", "signature": "class Money"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "operator", "scope": "Money.operator==", "signature": "bool operator ==(Object other)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Shape", "signature": "abstract class Shape"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "method_declaration", "scope": "Shape.area", "signature": "double area()"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "function", "scope": "externalFunc", "signature": "external void externalFunc(int x)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "getter", "scope": "externalGetter", "signature": "external int get externalGetter"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "setter", "scope": "externalSetter", "signature": "external void set externalSetter(int v)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "NativeLib", "signature": "class NativeLib"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "method_declaration", "scope": "NativeLib.extMethod", "signature": "external void extMethod(int code)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "getter", "scope": "NativeLib.extGetter", "signature": "external int get extGetter"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "constructor", "scope": "NativeLib._internal", "signature": "external factory NativeLib._internal()"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "extension_type", "scope": "Point", "signature": "extension type Point(double x, double y)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "constructor", "scope": "Point.origin", "signature": "Point.origin() : this(0.0, 0.0)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "method", "scope": "Point.distanceTo", "signature": "double distanceTo(Point other)"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "const", "scope": "configName", "signature": "configName"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "class", "scope": "Product", "signature": "class Product"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "field", "scope": "Product.id", "signature": "id"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "field", "scope": "Product.label", "signature": "label = 'item'"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "const", "scope": "count", "signature": "count = 0"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "enum", "scope": "Color", "signature": "enum Color"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "variant", "scope": "Color.red", "signature": "red"}
+{"path": "tests/fixtures/dart/edge.dart", "kind": "function", "scope": "withLocalDefs", "signature": "void withLocalDefs()"}

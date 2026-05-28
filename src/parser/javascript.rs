@@ -1,19 +1,24 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
     LanguageParser, MatchMode, build_scope, build_scope_from_node, classify_method_definition,
-    first_child_by_kind, first_line_of_node, flatten_bytes, line_range, node_text_ref,
+    export_aware_sig_node, first_child_by_kind, first_line_of_node, flatten_bytes, handle_pair,
+    handle_var_decl, line_range, node_text_ref,
 };
 use tree_sitter::{Node, Parser};
+
+pub(crate) const LANGUAGE: &str = "javascript";
+pub(crate) const EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs"];
+pub(crate) const ALIASES: &[&str] = &["js", "node", "ecmascript"];
 
 pub struct JsParser;
 
 impl LanguageParser for JsParser {
     fn language(&self) -> &'static str {
-        "js"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".js", ".jsx", ".mjs", ".cjs"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
@@ -25,6 +30,8 @@ impl LanguageParser for JsParser {
             DefKind::Setter,
             DefKind::Class,
             DefKind::Const,
+            DefKind::Field,
+            DefKind::Var,
         ]
     }
 
@@ -90,8 +97,22 @@ fn collect_definitions<'a>(
             );
             return;
         }
+        "pair" => {
+            handle_pair(node, source, mode, kinds, results, scope);
+            return;
+        }
+        "field_definition" => {
+            if kinds.contains(&DefKind::Field) {
+                handle_js_field(node, source, mode, results, scope);
+            }
+            return;
+        }
         "lexical_declaration" => {
             handle_lexical_decl(node, source, mode, kinds, results, scope);
+            return;
+        }
+        "variable_declaration" => {
+            handle_var_decl(node, source, mode, kinds, results, scope);
             return;
         }
         "ERROR" => {
@@ -147,15 +168,6 @@ fn handle_error_function<'a>(
         signature,
         scope: def_scope,
     });
-}
-
-/// Return the export-aware signature start node: if `node` is wrapped in an
-/// `export_statement`, return that parent; otherwise return `node` itself.
-fn export_aware_sig_node(node: Node) -> Node {
-    match node.parent() {
-        Some(p) if p.kind() == "export_statement" => p,
-        _ => node,
-    }
 }
 
 fn extract_signature_to_body(node: Node, source: &str, body_kind: &str) -> String {
@@ -215,9 +227,7 @@ fn handle_lexical_decl<'a>(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if first_child_by_kind(node, "const").is_none() {
-        return;
-    }
+    let is_const = first_child_by_kind(node, "const").is_some();
 
     let sig_start_node = export_aware_sig_node(node);
 
@@ -237,7 +247,13 @@ fn handle_lexical_decl<'a>(
         let def_kind = match value_node.as_ref().map(|v| v.kind()) {
             Some("arrow_function") | Some("function_expression") => DefKind::Function,
             Some("class") => DefKind::Class,
-            _ => DefKind::Const,
+            _ => {
+                if is_const {
+                    DefKind::Const
+                } else {
+                    DefKind::Var
+                }
+            }
         };
 
         let own_scope = build_scope(scope, ".", name_ref);
@@ -295,319 +311,33 @@ fn recurse_into_body(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // --- Meta tests ---
-
-    // --- Edge case tests ---
-
-    #[test]
-    fn extract_empty_source() {
-        let results = extract_definitions(&JsParser, "anything", &[DefKind::Function], "");
-        assert!(results.is_empty());
+/// Handle a field_definition node (class field in JS).
+/// JS tree-sitter uses "property" field (not "name") for the field identifier.
+fn handle_js_field<'a>(
+    node: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("property") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
     }
 
-    #[test]
-    fn malformed_source() {
-        let results = extract_definitions(
-            &JsParser,
-            "anything",
-            &[DefKind::Function],
-            "function {{{{}}}}",
-        );
-        assert!(results.is_empty() || results.len() <= 10);
-    }
+    let own_scope = build_scope(scope, ".", name_ref);
+    let signature = first_line_of_node(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
 
-    #[test]
-    fn missing_body_block() {
-        let results = extract_definitions(&JsParser, "foo", &[DefKind::Function], "function foo()");
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("function foo()"));
-    }
-
-    #[test]
-    fn multi_line_signature() {
-        let src = "function multi(\n  x,\n  y\n) {}";
-        let results = extract_definitions(&JsParser, "multi", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert!(results[0].signature.contains("multi"));
-        assert!(results[0].signature.contains("x"));
-        assert!(results[0].signature.contains("y"));
-    }
-
-    #[test]
-    fn line_range_correct() {
-        let src = "function foo() {\n  return 1;\n}";
-        let results = extract_definitions(&JsParser, "foo", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].lines, [1, 3]);
-    }
-
-    #[test]
-    fn multi_line_const_signature() {
-        let src = "const data = {\n  x: 1,\n  y: 2\n};";
-        let results = extract_definitions(&JsParser, "data", &[DefKind::Const], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert!(results[0].signature.contains("const data"));
-    }
-
-    #[test]
-    fn multi_line_const_arrow_signature() {
-        let src = "const handler = (\n  x,\n  y\n) => {\n  return x + y;\n};";
-        let results = extract_definitions(&JsParser, "handler", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert!(results[0].signature.contains("const handler"));
-    }
-
-    // --- Kind filter / disambiguation edge cases ---
-
-    #[test]
-    fn kind_filter_func_not_class() {
-        let results = extract_definitions(&JsParser, "foo", &[DefKind::Class], "function foo() {}");
-        assert!(results.is_empty());
-    }
-
-    // --- Exception path: let/var skipped ---
-
-    #[test]
-    fn let_skipped() {
-        let results = extract_definitions(
-            &JsParser,
-            "letVar",
-            &[DefKind::Const, DefKind::Function],
-            "let letVar = 'hello';",
-        );
-        assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn let_arrow_skipped() {
-        let results = extract_definitions(
-            &JsParser,
-            "letArrow",
-            &[DefKind::Function],
-            "let letArrow = () => {};",
-        );
-        assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn var_skipped() {
-        let results = extract_definitions(
-            &JsParser,
-            "varVar",
-            &[DefKind::Const, DefKind::Function],
-            "var varVar = true;",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn const_destructure_substring_match() {
-        // Substring matching: "a" appears in "{ a, b }" (the name text of destructured const)
-        let results =
-            extract_definitions(&JsParser, "a", &[DefKind::Const], "const { a, b } = obj;");
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Const);
-    }
-
-    #[test]
-    fn anonymous_arrow_not_extracted() {
-        let results = extract_definitions(
-            &JsParser,
-            "callback",
-            &[DefKind::Function],
-            "setTimeout(() => { console.log('hi'); }, 1000);",
-        );
-        assert!(results.is_empty());
-    }
-
-    // --- Object literal method scope edge cases ---
-
-    #[test]
-    fn object_literal_method_scope() {
-        let src = "const config = { init() { return 1; } };";
-        let results = extract_definitions(&JsParser, "init", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "config.init");
-    }
-
-    #[test]
-    fn object_literal_method_nested_in_function_not_extracted() {
-        let src = "function setup() { const config = { init() {} }; }";
-        let results = extract_definitions(&JsParser, "init", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn object_literal_multiple_methods() {
-        let src = "const obj = { init() {}, destroy() {} };";
-        let init_results = extract_definitions(&JsParser, "init", &[DefKind::Method], src);
-        assert_eq!(init_results.len(), 1);
-        assert_eq!(init_results[0].scope, "obj.init");
-
-        let destroy_results = extract_definitions(&JsParser, "destroy", &[DefKind::Method], src);
-        assert_eq!(destroy_results.len(), 1);
-        assert_eq!(destroy_results[0].scope, "obj.destroy");
-    }
-
-    // --- Scope: function_expression / arrow_function contribute to scope ---
-
-    // --- Function-body definitions should NOT be extracted ---
-
-    #[test]
-    fn scope_nested_in_function_expression_not_extracted() {
-        let src = "const fn = function() { function inner() {} };";
-        let results = extract_definitions(&JsParser, "inner", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn scope_nested_in_arrow_function_not_extracted() {
-        let src = "const fn = () => { function nested() {} };";
-        let results = extract_definitions(&JsParser, "nested", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    // --- Kind: class_expression identified as Class ---
-
-    #[test]
-    fn class_expression_kind() {
-        let src = "const MyClass = class { method() {} };";
-        let results = extract_definitions(&JsParser, "MyClass", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Class);
-        assert_eq!(results[0].scope, "MyClass");
-    }
-
-    #[test]
-    fn class_expression_method_scope() {
-        let src = "const MyClass = class { method() {} };";
-        let results = extract_definitions(&JsParser, "method", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "MyClass.method");
-    }
-
-    // --- Sub-kind classification for method_definition ---
-
-    #[test]
-    fn class_method_is_method_kind() {
-        let src = "class Foo { bar() {} }";
-        let results = extract_definitions(&JsParser, "bar", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "Foo.bar");
-    }
-
-    #[test]
-    fn class_constructor_is_constructor_kind() {
-        let src = "class Foo { constructor() {} }";
-        let results = extract_definitions(&JsParser, "constructor", &[DefKind::Constructor], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Constructor);
-        assert_eq!(results[0].scope, "Foo.constructor");
-    }
-
-    #[test]
-    fn class_getter_is_getter_kind() {
-        let src = "class Foo { get name() { return 1; } }";
-        let results = extract_definitions(&JsParser, "name", &[DefKind::Getter], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Getter);
-        assert_eq!(results[0].scope, "Foo.name");
-    }
-
-    #[test]
-    fn class_setter_is_setter_kind() {
-        let src = "class Foo { set name(v) { this._name = v; } }";
-        let results = extract_definitions(&JsParser, "name", &[DefKind::Setter], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Setter);
-        assert_eq!(results[0].scope, "Foo.name");
-    }
-
-    #[test]
-    fn object_literal_method_is_method_kind() {
-        let src = "const obj = { init() {} };";
-        let results = extract_definitions(&JsParser, "init", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "obj.init");
-    }
-
-    #[test]
-    fn object_literal_getter_is_getter_kind() {
-        let src = "const obj = { get x() { return 1; } };";
-        let results = extract_definitions(&JsParser, "x", &[DefKind::Getter], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Getter);
-        assert_eq!(results[0].scope, "obj.x");
-    }
-
-    #[test]
-    fn object_literal_setter_is_setter_kind() {
-        let src = "const obj = { set x(v) {} };";
-        let results = extract_definitions(&JsParser, "x", &[DefKind::Setter], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Setter);
-        assert_eq!(results[0].scope, "obj.x");
-    }
-
-    #[test]
-    fn method_kind_excludes_top_level_function() {
-        let src = "function foo() {}";
-        let results = extract_definitions(&JsParser, "foo", &[DefKind::Method], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn function_kind_excludes_class_method() {
-        let src = "class Foo { bar() {} }";
-        let results = extract_definitions(&JsParser, "bar", &[DefKind::Function], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn callable_includes_all_sub_kinds() {
-        let src = "function foo() {} class Bar { constructor() {} baz() {} get x() { return 1; } set x(v) {} }";
-        let all_callables = &[
-            DefKind::Function,
-            DefKind::Method,
-            DefKind::Constructor,
-            DefKind::Getter,
-            DefKind::Setter,
-        ];
-        let foo = extract_definitions(&JsParser, "foo", all_callables, src);
-        assert_eq!(foo.len(), 1);
-        assert_eq!(foo[0].kind, DefKind::Function);
-
-        let ctor = extract_definitions(&JsParser, "constructor", all_callables, src);
-        assert_eq!(ctor.len(), 1);
-        assert_eq!(ctor[0].kind, DefKind::Constructor);
-
-        let baz = extract_definitions(&JsParser, "baz", all_callables, src);
-        assert_eq!(baz.len(), 1);
-        assert_eq!(baz[0].kind, DefKind::Method);
-
-        let getter = extract_definitions(&JsParser, "x", all_callables, src);
-        assert_eq!(getter.len(), 2); // getter + setter both match "x"
-        assert!(getter.iter().any(|r| r.kind == DefKind::Getter));
-        assert!(getter.iter().any(|r| r.kind == DefKind::Setter));
-    }
+    results.push(DefContent {
+        kind: DefKind::Field,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
 }

@@ -6,21 +6,31 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "php";
+pub(crate) const EXTENSIONS: &[&str] = &["php", "phtml", "phar", "ctp"];
+pub(crate) const ALIASES: &[&str] = &[];
+
 pub struct PhpParser;
 
 impl LanguageParser for PhpParser {
     fn language(&self) -> &'static str {
-        "php"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".php", ".phtml", ".phar", ".ctp"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
             DefKind::Method,
+            DefKind::MethodDeclaration,
+            DefKind::Constructor,
+            DefKind::Destructor,
+            DefKind::Getter,
+            DefKind::Setter,
+            DefKind::Operator,
             DefKind::Class,
             DefKind::Interface,
             DefKind::Trait,
@@ -250,10 +260,7 @@ fn collect_definitions(
         }
         // --- Method/Function definitions ---
         "method_declaration" => {
-            if kinds.contains(&DefKind::Method) {
-                handle_method(node, source, mode, results, scope);
-            }
-            // Do not recurse into method body
+            handle_method(node, source, mode, kinds, results, scope);
         }
         "function_definition" => {
             if kinds.contains(&DefKind::Function) {
@@ -283,6 +290,13 @@ fn collect_definitions(
         "declaration_list" | "enum_declaration_list" | "compound_statement" => {
             recurse_children(node, source, mode, kinds, results, scope);
         }
+        // --- define() function call → Const ---
+        "expression_statement" => {
+            if kinds.contains(&DefKind::Const) {
+                handle_define_expression(node, source, mode, results, scope);
+            }
+            // Skip all other expression statements
+        }
         // --- Skip non-definition nodes ---
         "namespace_use_declaration"
         | "namespace_use_function_declaration"
@@ -293,7 +307,6 @@ fn collect_definitions(
         | "text"
         | "text_interpolation"
         | "echo_statement"
-        | "expression_statement"
         | "return_statement"
         | "use_declaration" => {}
         // --- Default: recurse into children ---
@@ -379,6 +392,18 @@ fn signature_start_byte(node: Node) -> usize {
     }
 }
 
+/// Classify a PHP method by its magic method name.
+fn classify_php_method(name: &str) -> DefKind {
+    match name {
+        "__construct" => DefKind::Constructor,
+        "__destruct" => DefKind::Destructor,
+        "__get" | "__isset" | "__unset" => DefKind::Getter,
+        "__set" => DefKind::Setter,
+        "__invoke" | "__call" | "__callStatic" => DefKind::Operator,
+        _ => DefKind::Method,
+    }
+}
+
 /// Handle a method_declaration node (class/trait/interface method).
 /// Body is optional (abstract/interface methods have no body).
 /// Signature: from (attributes or node) start to body boundary or semicolon.
@@ -386,9 +411,56 @@ fn handle_method(
     node: Node,
     source: &str,
     mode: &MatchMode,
+    kinds: &[DefKind],
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
+    // Extract promoted properties (PHP 8 constructor property promotion) first,
+    // independently of method name/kind matching — property names differ from method names.
+    if kinds.contains(&DefKind::Property) {
+        let params = node.child_by_field_name("parameters");
+        if let Some(params) = params {
+            let mut cursor = params.walk();
+            for param in params.children(&mut cursor) {
+                if param.kind() != "property_promotion_parameter" {
+                    continue;
+                }
+                let name_node = match param.child_by_field_name("name") {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let name_ref: &str = if name_node.kind() == "variable_name" {
+                    match name_node.child_by_field_name("name") {
+                        Some(n) => node_text_ref(n, source),
+                        None => {
+                            let raw = node_text_ref(name_node, source);
+                            raw.strip_prefix('$').unwrap_or(raw)
+                        }
+                    }
+                } else {
+                    node_text_ref(name_node, source)
+                };
+
+                if !mode.matches_ident(name_ref) {
+                    continue;
+                }
+
+                let own_scope = build_scope(scope, "::", name_ref);
+                let sig = first_line_of_node(param, source);
+                let signature = normalize_signature(&sig);
+                let start_row = param.start_position().row + 1;
+                let [start, end] = line_range(start_row, param);
+
+                results.push(DefContent {
+                    kind: DefKind::Property,
+                    lines: [start, end],
+                    signature,
+                    scope: own_scope,
+                });
+            }
+        }
+    }
+
     let name_node = match node.child_by_field_name("name") {
         Some(n) => n,
         None => return,
@@ -398,13 +470,26 @@ fn handle_method(
         return;
     }
 
+    let def_kind = classify_php_method(name_ref);
+    let has_body = node.child_by_field_name("body").is_some();
+    let def_kind = if has_body {
+        def_kind
+    } else {
+        def_kind
+            .declaration_pair()
+            .expect("callable kinds always have declaration pairs")
+    };
+    if !kinds.contains(&def_kind) {
+        return;
+    }
+
     let own_scope = build_scope(scope, "::", name_ref);
     let signature = extract_method_signature(node, source);
     let start_row = node.start_position().row + 1;
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Method,
+        kind: def_kind,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -539,6 +624,102 @@ fn extract_const_signature(node: Node, source: &str) -> String {
         .unwrap_or_else(|| first_line_of_node(node, source))
 }
 
+/// Handle expression_statement containing a define() call → Const extraction.
+/// Pattern: expression_statement > function_call_expression where function name is "define"
+/// and first argument is a string literal (single-quoted `string` or double-quoted `encapsed_string`).
+/// Non-string first arguments (dynamic names) are silently skipped.
+fn handle_define_expression(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "function_call_expression" {
+            continue;
+        }
+
+        // Check function name is "define"
+        let func_node = match child.child_by_field_name("function") {
+            Some(n) if n.kind() == "name" => n,
+            _ => continue,
+        };
+        if node_text_ref(func_node, source) != "define" {
+            continue;
+        }
+
+        // Get arguments node
+        let args_node = match child.child_by_field_name("arguments") {
+            Some(n) => n,
+            _ => continue,
+        };
+
+        // Find first argument and extract const name from string literal
+        let const_name = match extract_define_const_name(args_node, source) {
+            Some(name) => name,
+            None => continue, // Non-string first argument, skip silently
+        };
+
+        if !mode.matches_ident(const_name) {
+            continue;
+        }
+
+        let own_scope = build_scope(scope, "\\", const_name);
+        let sig = extract_define_signature(node, source);
+        let start_row = node.start_position().row + 1;
+        let [start, end] = line_range(start_row, node);
+
+        results.push(DefContent {
+            kind: DefKind::Const,
+            lines: [start, end],
+            signature: sig,
+            scope: own_scope,
+        });
+    }
+}
+
+/// Extract constant name from first argument of define() call.
+/// Returns the string content if first argument is a string literal, None otherwise.
+fn extract_define_const_name<'a>(args_node: Node, source: &'a str) -> Option<&'a str> {
+    let mut cursor = args_node.walk();
+    let first_arg = args_node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "argument")?;
+
+    // Both single-quoted `string` and double-quoted `encapsed_string` contain
+    // a `string_content` child with the actual text.
+    for arg_child in first_arg.children(&mut cursor) {
+        let inner = match arg_child.kind() {
+            "string" | "encapsed_string" => arg_child,
+            _ => continue,
+        };
+        let mut inner_cursor = inner.walk();
+        for sc in inner.children(&mut inner_cursor) {
+            if sc.kind() == "string_content" {
+                return Some(node_text_ref(sc, source));
+            }
+        }
+    }
+    None
+}
+
+/// Extract a define() call's signature: from expression_statement start to `;` boundary.
+fn extract_define_signature(node: Node, source: &str) -> String {
+    let mut end_byte = node.end_byte();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == ";" {
+            end_byte = child.start_byte();
+            break;
+        }
+    }
+    flatten_bytes(node.start_byte(), end_byte, source)
+        .map(|s| normalize_signature(&s))
+        .unwrap_or_else(|| first_line_of_node(node, source))
+}
+
 /// Handle a property_declaration node: extract typed properties.
 /// PHP property_declaration > property_element > name > variable_name > name
 fn handle_property(
@@ -638,119 +819,4 @@ fn extract_enum_case_signature(node: Node, source: &str) -> String {
     flatten_bytes(start_byte, end_byte, source)
         .map(|s| normalize_signature(&s))
         .unwrap_or_else(|| first_line_of_node(node, source))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // === Edge case tests ===
-
-    #[test]
-    fn test_empty_php_file() {
-        let results = extract_definitions(&PhpParser, "anything", DefKind::all(), "<?php");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_malformed_source() {
-        let results =
-            extract_definitions(&PhpParser, "anything", DefKind::all(), "<?php {{{{class");
-        assert!(results.len() <= 10);
-    }
-
-    #[test]
-    fn test_enum_case_extracted_as_variant() {
-        let results = extract_definitions(
-            &PhpParser,
-            "Active",
-            DefKind::all(),
-            "<?php enum Status { case Active; case Inactive; }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Variant);
-        assert_eq!(results[0].scope, "Status::Active");
-        assert_eq!(results[0].signature, "case Active");
-    }
-
-    #[test]
-    fn test_enum_case_not_extracted_as_const() {
-        let src = "<?php enum Status { case Active; case Inactive; }";
-        let results = extract_definitions(&PhpParser, "Active", &[DefKind::Const], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_function_kind_filter() {
-        let src = "<?php class Foo { public function bar() {} }";
-        let results = extract_definitions(&PhpParser, "bar", &[DefKind::Class], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_const_name_mismatch() {
-        let src = "<?php const MAX = 100;";
-        let results = extract_definitions(&PhpParser, "MIN", &[DefKind::Const], src);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_multi_line_class_signature() {
-        let src = "<?php\nabstract\nclass Shape\n{ }";
-        let results = extract_definitions(&PhpParser, "Shape", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert_eq!(results[0].signature, "abstract class Shape");
-    }
-
-    #[test]
-    fn test_multi_line_function_signature() {
-        let src = "<?php
-function greet(
-    string $name,
-    int $age
-): string { return ''; }";
-        let results = extract_definitions(&PhpParser, "greet", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert!(results[0].signature.contains("function greet"));
-    }
-
-    // === MatchMode edge case tests ===
-
-    #[test]
-    fn test_exact_match_mode() {
-        let src = "<?php class UserService { } class BaseService { }";
-        let mode = MatchMode::from_user_input("UserService", false, false).unwrap();
-        let p = PhpParser;
-        let mut parser = p.init_parser();
-        let results = p
-            .extract_with(&mode, &[DefKind::Class], src, &mut parser)
-            .unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].signature, "class UserService");
-    }
-
-    #[test]
-    fn test_fuzzy_match_mode() {
-        let src = "<?php class UserService { } class UserFactory { } class BaseService { }";
-        let mode = MatchMode::from_user_input("User.*", false, false).unwrap();
-        let p = PhpParser;
-        let mut parser = p.init_parser();
-        let results = p
-            .extract_with(&mode, &[DefKind::Class], src, &mut parser)
-            .unwrap();
-        assert_eq!(results.len(), 2);
-    }
-
-    // === HTML mixed content ===
-
-    #[test]
-    fn test_php_html_mixed() {
-        let src = "<html><body><?php class UserService { } ?></body></html>";
-        let results = extract_definitions(&PhpParser, "UserService", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Class);
-    }
 }

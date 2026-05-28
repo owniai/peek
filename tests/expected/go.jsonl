@@ -1,0 +1,102 @@
+{"path": "tests/fixtures/go/core.go", "kind": "package", "scope": "core", "signature": "package core"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "simpleFunc", "signature": "func simpleFunc()"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "withParams", "signature": "func withParams(x int, y string)"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "withReturn", "signature": "func withReturn() int"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "withMultipleReturn", "signature": "func withMultipleReturn() (int, error)"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "withNamedReturn", "signature": "func withNamedReturn() (result int, err error)"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "variadicFunc", "signature": "func variadicFunc(items ...string)"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "GenericFunc", "signature": "func GenericFunc[T any](value T) T"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "GenericMulti", "signature": "func GenericMulti[T any, U any](t T, u U) (T, U)"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "typeSwitch", "signature": "func typeSwitch(x interface{})"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "withClosure", "signature": "func withClosure() func(int) int"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "withLocalDefs", "signature": "func withLocalDefs()"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Server", "signature": "Server struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Server.Host", "signature": "Host string"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Server.Port", "signature": "Port int"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Point", "signature": "Point struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Point.X", "signature": "X float64"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Point.Y", "signature": "Y float64"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Embedded", "signature": "Embedded struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Embedded.Server", "signature": "Server"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Embedded.Name", "signature": "Name string"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "MultiMethod", "signature": "MultiMethod struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "MultiMethod.data", "signature": "data int"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "MultiMethod.ValueMethod", "signature": "func (m MultiMethod) ValueMethod() int"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "MultiMethod.PtrMethod", "signature": "func (m *MultiMethod) PtrMethod() int"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Config", "signature": "Config struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Config.Host", "signature": "Host string"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Config.Validate", "signature": "func (c Config) Validate() bool"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Config.Invalidate", "signature": "func (c *Config) Invalidate()"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Alpha", "signature": "Alpha struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Alpha.process", "signature": "func (a Alpha) process()"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Beta", "signature": "Beta struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Beta.process", "signature": "func (b Beta) process()"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Server.ValueReceiverMethod", "signature": "func (s Server) ValueReceiverMethod() string"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Server.PointerReceiverMethod", "signature": "func (s *Server) PointerReceiverMethod() error"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "Server.MethodWithParams", "signature": "func (s *Server) MethodWithParams(timeout int) (bool, error)"}
+{"path": "tests/fixtures/go/core.go", "kind": "interface", "scope": "Reader", "signature": "Reader interface"}
+{"path": "tests/fixtures/go/core.go", "kind": "method_declaration", "scope": "Reader.Read", "signature": "Read(p []byte) (n int, err error)"}
+{"path": "tests/fixtures/go/core.go", "kind": "interface", "scope": "Writer", "signature": "Writer interface"}
+{"path": "tests/fixtures/go/core.go", "kind": "method_declaration", "scope": "Writer.Write", "signature": "Write(p []byte) (n int, err error)"}
+{"path": "tests/fixtures/go/core.go", "kind": "interface", "scope": "ReadWriter", "signature": "ReadWriter interface"}
+{"path": "tests/fixtures/go/core.go", "kind": "interface", "scope": "Storer", "signature": "Storer interface"}
+{"path": "tests/fixtures/go/core.go", "kind": "method_declaration", "scope": "Storer.Store", "signature": "Store(data []byte) error"}
+{"path": "tests/fixtures/go/core.go", "kind": "interface", "scope": "Transformer", "signature": "Transformer[From any, To any] interface"}
+{"path": "tests/fixtures/go/core.go", "kind": "method_declaration", "scope": "Transformer.Transform", "signature": "Transform(from From) To"}
+{"path": "tests/fixtures/go/core.go", "kind": "struct", "scope": "Pair", "signature": "Pair[K comparable, V any] struct"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Pair.Key", "signature": "Key   K"}
+{"path": "tests/fixtures/go/core.go", "kind": "field", "scope": "Pair.Value", "signature": "Value V"}
+{"path": "tests/fixtures/go/core.go", "kind": "function", "scope": "Lookup", "signature": "func Lookup[T any](key string) (T, error)"}
+{"path": "tests/fixtures/go/core.go", "kind": "alias", "scope": "AliasInt", "signature": "type AliasInt = int"}
+{"path": "tests/fixtures/go/core.go", "kind": "alias", "scope": "AliasMap", "signature": "type AliasMap = map[string]int"}
+{"path": "tests/fixtures/go/core.go", "kind": "alias", "scope": "AliasStr", "signature": "type AliasStr = string"}
+{"path": "tests/fixtures/go/core.go", "kind": "alias", "scope": "DefinedSlice", "signature": "DefinedSlice []string"}
+{"path": "tests/fixtures/go/core.go", "kind": "alias", "scope": "DefinedInt", "signature": "DefinedInt int"}
+{"path": "tests/fixtures/go/core.go", "kind": "method", "scope": "DefinedInt.IsPositive", "signature": "func (d DefinedInt) IsPositive() bool"}
+{"path": "tests/fixtures/go/core.go", "kind": "const", "scope": "MaxSize", "signature": "MaxSize = 1024"}
+{"path": "tests/fixtures/go/core.go", "kind": "const", "scope": "StatusOK", "signature": "StatusOK    = 200"}
+{"path": "tests/fixtures/go/core.go", "kind": "const", "scope": "StatusError", "signature": "StatusError = 500"}
+{"path": "tests/fixtures/go/core.go", "kind": "const", "scope": "MaxLimit", "signature": "MaxLimit = 100"}
+{"path": "tests/fixtures/go/core.go", "kind": "var", "scope": "GlobalVar", "signature": "GlobalVar int = 42"}
+{"path": "tests/fixtures/go/core.go", "kind": "var", "scope": "DebugMode", "signature": "DebugMode bool"}
+{"path": "tests/fixtures/go/edge.go", "kind": "package", "scope": "edge", "signature": "package edge"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "S", "signature": "S struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "S.data", "signature": "data int"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method", "scope": "S.ValRecv", "signature": "func (s S) ValRecv() int"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method", "scope": "S.PtrRecv", "signature": "func (s *S) PtrRecv() int"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "Embed", "signature": "Embed struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "Embed.Name", "signature": "Name string"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "Embed.S", "signature": "S"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "PtrEmbed", "signature": "PtrEmbed struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "PtrEmbed.Server", "signature": "*http.Server"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "PtrEmbed.Timeout", "signature": "Timeout int"}
+{"path": "tests/fixtures/go/edge.go", "kind": "const", "scope": "A", "signature": "A = 1"}
+{"path": "tests/fixtures/go/edge.go", "kind": "const", "scope": "B", "signature": "B = 2"}
+{"path": "tests/fixtures/go/edge.go", "kind": "const", "scope": "TypedConst", "signature": "TypedConst string = \"hello\""}
+{"path": "tests/fixtures/go/edge.go", "kind": "const", "scope": "Red", "signature": "Red   = iota"}
+{"path": "tests/fixtures/go/edge.go", "kind": "const", "scope": "Green", "signature": "Green"}
+{"path": "tests/fixtures/go/edge.go", "kind": "const", "scope": "Blue", "signature": "Blue"}
+{"path": "tests/fixtures/go/edge.go", "kind": "var", "scope": "VarA", "signature": "VarA = \"a\""}
+{"path": "tests/fixtures/go/edge.go", "kind": "var", "scope": "VarB", "signature": "VarB = 1"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "GroupedStruct", "signature": "GroupedStruct struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "GroupedStruct.X", "signature": "X int"}
+{"path": "tests/fixtures/go/edge.go", "kind": "alias", "scope": "GroupedInt", "signature": "GroupedInt int"}
+{"path": "tests/fixtures/go/edge.go", "kind": "function", "scope": "outer", "signature": "func outer()"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "Container", "signature": "Container[T any] struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "Container.Value", "signature": "Value T"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method", "scope": "Container.Get", "signature": "func (c *Container[T]) Get() T"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method", "scope": "Container.Set", "signature": "func (c *Container[T]) Set(value T)"}
+{"path": "tests/fixtures/go/edge.go", "kind": "interface", "scope": "EmptyInterface", "signature": "EmptyInterface interface"}
+{"path": "tests/fixtures/go/edge.go", "kind": "interface", "scope": "BaseIO", "signature": "BaseIO interface"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method_declaration", "scope": "BaseIO.Read", "signature": "Read() error"}
+{"path": "tests/fixtures/go/edge.go", "kind": "interface", "scope": "CombinedIO", "signature": "CombinedIO interface"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method_declaration", "scope": "CombinedIO.Write", "signature": "Write() error"}
+{"path": "tests/fixtures/go/edge.go", "kind": "function", "scope": "multilineSig", "signature": "func multilineSig( x int, y string, ) (int, error)"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "Tagged", "signature": "Tagged struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "Tagged.Field", "signature": "Field string `json:\"field\" yaml:\"field\"`"}
+{"path": "tests/fixtures/go/edge.go", "kind": "struct", "scope": "GroupedPoint", "signature": "GroupedPoint  struct"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "GroupedPoint.X", "signature": "X float64"}
+{"path": "tests/fixtures/go/edge.go", "kind": "field", "scope": "GroupedPoint.Y", "signature": "Y float64"}
+{"path": "tests/fixtures/go/edge.go", "kind": "interface", "scope": "GroupedHandler", "signature": "GroupedHandler interface"}
+{"path": "tests/fixtures/go/edge.go", "kind": "method_declaration", "scope": "GroupedHandler.Handle", "signature": "Handle() error"}
+{"path": "tests/fixtures/go/edge.go", "kind": "alias", "scope": "GroupedAlias", "signature": "type ("}

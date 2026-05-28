@@ -5,32 +5,47 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "rust";
+pub(crate) const EXTENSIONS: &[&str] = &["rs"];
+pub(crate) const ALIASES: &[&str] = &["rs"];
+
 pub struct RustParser;
 
 impl LanguageParser for RustParser {
     fn language(&self) -> &'static str {
-        "rs"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".rs"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
+            DefKind::FunctionDeclaration,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Struct,
             DefKind::Enum,
             DefKind::Alias,
+            DefKind::AssociatedType,
             DefKind::Trait,
             DefKind::Const,
             DefKind::Macro,
             DefKind::Module,
+            DefKind::ModuleDeclaration,
             DefKind::Union,
             DefKind::Field,
-            DefKind::Static,
+            DefKind::Var,
             DefKind::Variant,
+            DefKind::Operator,
+            DefKind::OperatorDeclaration,
+            DefKind::Subscript,
+            DefKind::SubscriptDeclaration,
+            DefKind::Destructor,
+            DefKind::DestructorDeclaration,
+            DefKind::Impl,
         ]
     }
 
@@ -56,6 +71,8 @@ impl LanguageParser for RustParser {
             &mut results,
             "",
             false,
+            None,
+            false,
         );
         Ok(results)
     }
@@ -64,16 +81,34 @@ impl LanguageParser for RustParser {
 fn kind_for_node(node: Node) -> Option<DefKind> {
     match node.kind() {
         "function_item" => Some(DefKind::Function),
-        "function_signature_item" => Some(DefKind::Function),
+        "function_signature_item" => Some(DefKind::FunctionDeclaration),
         "struct_item" => Some(DefKind::Struct),
         "union_item" => Some(DefKind::Union),
         "enum_item" => Some(DefKind::Enum),
         "type_item" => Some(DefKind::Alias),
+        "associated_type" => Some(DefKind::AssociatedType),
         "trait_item" => Some(DefKind::Trait),
         "const_item" => Some(DefKind::Const),
-        "static_item" => Some(DefKind::Static),
+        "static_item" => {
+            let has_mut = node
+                .children(&mut node.walk())
+                .any(|c| c.kind() == "mutable_specifier");
+            if has_mut {
+                Some(DefKind::Var)
+            } else {
+                Some(DefKind::Const)
+            }
+        }
         "macro_definition" => Some(DefKind::Macro),
-        "mod_item" => Some(DefKind::Module),
+        "mod_item" => {
+            // mod foo; (bodyless) → ModuleDeclaration; mod foo { ... } (with body) → Module
+            let has_body = node.child_by_field_name("body").is_some();
+            if has_body {
+                Some(DefKind::Module)
+            } else {
+                Some(DefKind::ModuleDeclaration)
+            }
+        }
         _ => None,
     }
 }
@@ -112,6 +147,41 @@ fn find_type_identifier(node: Node, source: &str) -> Option<String> {
     None
 }
 
+fn extract_trait_name<'a>(trait_node: Node, source: &'a str) -> Option<&'a str> {
+    let text = node_text_ref(trait_node, source);
+    let base = text.split('<').next().unwrap_or(text);
+    let name = base.rsplit("::").next().unwrap_or(base);
+    if name.is_empty() { None } else { Some(name) }
+}
+
+// Classify trait impl methods by the short trait name.
+// Operator: all traits in std::ops (arithmetic, bitwise, unary, compound assignment, deref, call)
+// plus comparison traits from std::cmp.
+// Subscript: Index/IndexMut (enables [] syntax, aligns with Swift/C# subscript).
+// Destructor: Drop (enables RAII cleanup, aligns with C++/Swift destructor).
+// Non-matching traits (Display, Clone, etc.) return None → methods stay as Method.
+fn classify_trait_method(trait_name: &str) -> Option<DefKind> {
+    match trait_name {
+        // std::ops — arithmetic & bitwise & unary
+        "Add" | "Sub" | "Mul" | "Div" | "Rem"
+        | "Neg" | "Not"
+        | "BitAnd" | "BitOr" | "BitXor" | "Shl" | "Shr"
+        // std::ops — compound assignment
+        | "AddAssign" | "SubAssign" | "MulAssign" | "DivAssign" | "RemAssign"
+        | "BitAndAssign" | "BitOrAssign" | "BitXorAssign" | "ShlAssign" | "ShrAssign"
+        // std::ops — deref (overloads * syntax, also used for Deref coercion)
+        | "Deref" | "DerefMut"
+        // std::cmp — comparison (overloads == != < > <= >=)
+        | "PartialEq" | "Eq" | "PartialOrd" | "Ord"
+        // std::ops — callable (overloads () syntax)
+        | "Fn" | "FnMut" | "FnOnce" => Some(DefKind::Operator),
+        "Index" | "IndexMut" => Some(DefKind::Subscript),
+        "Drop" => Some(DefKind::Destructor),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn collect_definitions<'a>(
     node: Node<'a>,
     source: &str,
@@ -120,6 +190,8 @@ fn collect_definitions<'a>(
     results: &mut Vec<DefContent>,
     scope: &str,
     in_type_body: bool,
+    trait_kind: Option<DefKind>,
+    in_trait_body: bool,
 ) {
     let mut attr_buffer: Vec<Node<'a>> = Vec::new();
     let mut cursor = node.walk();
@@ -143,6 +215,8 @@ fn collect_definitions<'a>(
                     scope,
                     &attr_buffer,
                     in_type_body,
+                    trait_kind,
+                    in_trait_body,
                 );
                 attr_buffer.clear();
                 // Don't recurse into function body — function-scoped definitions are not extracted
@@ -150,9 +224,53 @@ fn collect_definitions<'a>(
             "impl_item" => {
                 attr_buffer.clear();
                 let new_scope = compute_impl_scope(child, source, scope);
+                let trait_name_short = child
+                    .child_by_field_name("trait")
+                    .and_then(|n| extract_trait_name(n, source));
+                let new_trait_kind = trait_name_short.and_then(classify_trait_method);
+
+                if kinds.contains(&DefKind::Impl) {
+                    let impl_scope = match trait_name_short {
+                        Some(tn) => format!("{tn} for {new_scope}"),
+                        None => new_scope.clone(),
+                    };
+                    if mode.matches_ident(&impl_scope) {
+                        let sig_end = {
+                            let mut cur = child.walk();
+                            let mut end = child.end_byte();
+                            for gc in child.children(&mut cur) {
+                                if gc.kind() == "declaration_list" {
+                                    end = gc.start_byte();
+                                    break;
+                                }
+                            }
+                            end
+                        };
+                        let signature = flatten_bytes(child.start_byte(), sig_end, source)
+                            .unwrap_or_else(|| first_line_of_node(child, source));
+                        let [start, end] = line_range(child.start_position().row + 1, child);
+                        results.push(DefContent {
+                            kind: DefKind::Impl,
+                            lines: [start, end],
+                            signature,
+                            scope: impl_scope,
+                        });
+                    }
+                }
+
                 let mut inner_cursor = child.walk();
                 for grandchild in child.children(&mut inner_cursor) {
-                    collect_definitions(grandchild, source, mode, kinds, results, &new_scope, true);
+                    collect_definitions(
+                        grandchild,
+                        source,
+                        mode,
+                        kinds,
+                        results,
+                        &new_scope,
+                        true,
+                        new_trait_kind,
+                        false,
+                    );
                 }
             }
             "field_declaration" => {
@@ -174,6 +292,8 @@ fn collect_definitions<'a>(
                     scope,
                     &attr_buffer,
                     in_type_body,
+                    None,
+                    in_trait_body || is_type_body,
                 );
                 attr_buffer.clear();
                 let child_scope = match child.kind() {
@@ -194,6 +314,8 @@ fn collect_definitions<'a>(
                     results,
                     &child_scope,
                     child_in_type_body,
+                    None,
+                    in_trait_body || is_type_body,
                 );
             }
         }
@@ -286,8 +408,21 @@ fn handle_variant<'a>(
         kind: DefKind::Variant,
         lines: [start, end],
         signature,
-        scope: variant_scope,
+        scope: variant_scope.clone(),
     });
+
+    // Recurse into record variant fields (e.g. Rgb { r: u8, g: u8, b: u8 })
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "field_declaration_list" {
+            let mut field_cursor = child.walk();
+            for field_node in child.children(&mut field_cursor) {
+                if field_node.kind() == "field_declaration" {
+                    handle_field(field_node, source, mode, kinds, results, &variant_scope);
+                }
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -300,15 +435,44 @@ fn try_add_definition<'a>(
     scope: &str,
     attrs: &[Node<'a>],
     in_type_body: bool,
+    trait_kind: Option<DefKind>,
+    _in_trait_body: bool,
 ) {
     let def_kind = match kind_for_node(node) {
         Some(k) => k,
         None => return,
     };
 
+    // Proc macro functions (#[proc_macro], #[proc_macro_derive], #[proc_macro_attribute])
+    // are Macro definitions, not Function
+    let def_kind = if def_kind == DefKind::Function && node.kind() == "function_item" {
+        let is_proc_macro = attrs.iter().any(|a| {
+            let text = node_text_ref(*a, source);
+            text.starts_with("#[proc_macro")
+        });
+        if is_proc_macro {
+            DefKind::Macro
+        } else {
+            def_kind
+        }
+    } else {
+        def_kind
+    };
+
     // In impl/trait body, function_item and function_signature_item become Method
+    // or a more specific callable sub-kind based on the trait being implemented
     let def_kind = if in_type_body && def_kind == DefKind::Function {
-        DefKind::Method
+        trait_kind.unwrap_or(DefKind::Method)
+    } else if in_type_body && def_kind == DefKind::FunctionDeclaration {
+        trait_kind
+            .unwrap_or(DefKind::Method)
+            .declaration_pair()
+            .expect("callable kinds always have declaration pairs")
+    } else if in_type_body && def_kind == DefKind::Alias {
+        // tree-sitter-rust parses `type X = ...;` as type_item (both in traits and impls),
+        // but semantically these are associated types (trait declarations with defaults,
+        // or impl provisions fulfilling the trait's associated type requirement).
+        DefKind::AssociatedType
     } else {
         def_kind
     };
@@ -366,364 +530,55 @@ fn try_add_definition<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::extract_definitions;
+    use crate::model::DefKind;
 
-    // --- Disambiguation / kind filter edge cases ---
-
-    #[test]
-    fn enum_not_matched_by_struct() {
-        let src = "enum Foo { A } struct Foo { x: i32 }";
-        let results = extract_definitions(&RustParser, "Foo", &[DefKind::Enum], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Enum);
+    fn extract(source: &str) -> Vec<DefContent> {
+        let parser = RustParser;
+        let mut ts_parser = parser.init_parser();
+        let all_kinds: Vec<DefKind> = parser.supported_kinds().to_vec();
+        parser
+            .extract_with(&MatchMode::All, &all_kinds, source, &mut ts_parser)
+            .unwrap()
     }
 
     #[test]
-    fn const_fn_is_function_not_const() {
-        let src = "const fn factorial(n: u64) -> u64 { 1 }";
-        let results = extract_definitions(&RustParser, "factorial", &[DefKind::Const], src);
-        assert!(results.is_empty());
-        let results = extract_definitions(&RustParser, "factorial", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn macro_kind_filter() {
-        let src = "macro_rules! foo { () => {}; } fn foo() {}";
-        let results = extract_definitions(&RustParser, "foo", &[DefKind::Macro], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Macro);
-        let results = extract_definitions(&RustParser, "foo", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
-    }
-
-    #[test]
-    fn proc_macro_is_function_not_macro() {
-        let src = "#[proc_macro]\npub fn sql(input: TokenStream) -> TokenStream { input }";
-        let results = extract_definitions(&RustParser, "sql", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        let results = extract_definitions(&RustParser, "sql", &[DefKind::Macro], src);
-        assert!(results.is_empty());
-    }
-
-    // --- Trait/impl method edge cases ---
-
-    #[test]
-    fn trait_required_method_found_as_method() {
-        let src = "trait MyTrait { fn required_method(&self) -> i32; }";
-        let results = extract_definitions(&RustParser, "required_method", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "MyTrait::required_method");
-    }
-
-    #[test]
-    fn trait_provided_method_found_as_method() {
-        let src = "trait MyTrait { fn provided(&self) -> i32 { 42 } }";
-        let results = extract_definitions(&RustParser, "provided", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "MyTrait::provided");
-    }
-
-    #[test]
-    fn trait_method_with_generics() {
-        let src = "trait MyTrait { fn convert<U>(&self) -> U; }";
-        let results = extract_definitions(&RustParser, "convert", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("<U>"));
-    }
-
-    #[test]
-    fn trait_method_with_attr() {
-        let src = "trait MyTrait { #[inline] fn tagged(&self) -> i32; }";
-        let results = extract_definitions(&RustParser, "tagged", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("#[inline]"));
-    }
-
-    #[test]
-    fn nested_mod_trait_method() {
-        let src = "mod m { trait T { fn f(&self); } }";
-        let results = extract_definitions(&RustParser, "f", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "m::T::f");
-    }
-
-    #[test]
-    fn impl_method_is_method_kind() {
-        let src = "struct S {} impl S { fn new() {} }";
-        let results = extract_definitions(&RustParser, "new", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "S::new");
-    }
-
-    #[test]
-    fn impl_method_not_matched_by_function_kind() {
-        let src = "struct S {} impl S { fn new() {} }";
-        let results = extract_definitions(&RustParser, "new", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "impl method should not match -k function, got: {results:?}"
+    fn attribute_on_function_sets_start_row() {
+        let source = "\n#[inline]\nfn foo() {}\n";
+        let defs = extract(source);
+        let foo = defs.iter().find(|d| d.scope == "foo").unwrap();
+        assert_eq!(
+            foo.lines[0], 2,
+            "start line should be the #[inline] attribute line"
         );
     }
 
     #[test]
-    fn top_level_fn_still_function_kind() {
-        let src = "fn top_fn() {}";
-        let results = extract_definitions(&RustParser, "top_fn", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
-    }
-
-    #[test]
-    fn callable_kind_matches_both_function_and_method() {
-        let src = "fn top_fn() {} struct S {} impl S { fn method() {} }";
-        let results =
-            extract_definitions(&RustParser, ".", &[DefKind::Function, DefKind::Method], src);
-        assert_eq!(results.len(), 2);
-        let kinds: Vec<DefKind> = results.iter().map(|r| r.kind).collect();
-        assert!(kinds.contains(&DefKind::Function));
-        assert!(kinds.contains(&DefKind::Method));
-    }
-
-    // --- Function-body definitions should NOT be extracted ---
-
-    #[test]
-    fn fn_inside_fn_not_extracted() {
-        let src = "fn outer() { fn inner() {} }";
-        let results = extract_definitions(&RustParser, "inner", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
+    fn attribute_on_struct_sets_start_row() {
+        let source = "\n#[derive(Debug)]\nstruct Foo { x: i32 }\n";
+        let defs = extract(source);
+        let foo = defs.iter().find(|d| d.scope == "Foo").unwrap();
+        assert_eq!(
+            foo.lines[0], 2,
+            "start line should be the #[derive] attribute line"
         );
     }
 
     #[test]
-    fn struct_inside_fn_not_extracted() {
-        let src = "fn outer() { struct Inner {} }";
-        let results = extract_definitions(&RustParser, "Inner", &[DefKind::Struct], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
+    fn no_attribute_uses_node_start_row() {
+        let source = "\nfn bar() {}\n";
+        let defs = extract(source);
+        let bar = defs.iter().find(|d| d.scope == "bar").unwrap();
+        assert_eq!(bar.lines[0], 2, "start line should be the function line");
     }
 
     #[test]
-    fn enum_inside_fn_not_extracted() {
-        let src = "fn outer() { enum Inner { A } }";
-        let results = extract_definitions(&RustParser, "Inner", &[DefKind::Enum], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn type_inside_fn_not_extracted() {
-        let src = "fn outer() { type Inner = i32; }";
-        let results = extract_definitions(&RustParser, "Inner", &[DefKind::Alias], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn impl_inside_fn_not_extracted() {
-        let src = "fn outer() { struct S {} impl S { fn method() {} } }";
-        let results = extract_definitions(&RustParser, "method", &[DefKind::Method], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    // --- Module kind tests ---
-
-    #[test]
-    fn mod_item_extracted_as_module() {
-        let src = "mod my_mod {}";
-        let results = extract_definitions(&RustParser, "my_mod", &[DefKind::Module], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Module);
-        assert_eq!(results[0].scope, "my_mod");
-    }
-
-    #[test]
-    fn mod_item_bodyless_extracted() {
-        let src = "mod my_mod;";
-        let results = extract_definitions(&RustParser, "my_mod", &[DefKind::Module], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Module);
-    }
-
-    #[test]
-    fn nested_mod_scope() {
-        let src = "mod outer { mod inner { fn deep() {} } }";
-        let results = extract_definitions(&RustParser, "deep", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "outer::inner::deep");
-    }
-
-    #[test]
-    fn mod_inside_fn_not_extracted() {
-        let src = "fn outer() { mod inner_mod {} }";
-        let results = extract_definitions(&RustParser, "inner_mod", &[DefKind::Module], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn mod_with_attrs() {
-        let src = "#[cfg(test)] mod test_mod {}";
-        let results = extract_definitions(&RustParser, "test_mod", &[DefKind::Module], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("#[cfg(test)]"));
-    }
-
-    // --- extract_impl_type regression ---
-
-    #[test]
-    fn impl_for_generic_type_scope() {
-        let src = "struct Foo<T> {} impl<T> Foo<T> { fn new() {} }";
-        let results = extract_definitions(&RustParser, "new", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "Foo::new");
-    }
-
-    // --- Union ---
-
-    #[test]
-    fn union_extracted_as_union_kind() {
-        let src = "union IntOrFloat { i: i32, f: f32, }";
-        let results = extract_definitions(&RustParser, "IntOrFloat", &[DefKind::Union], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Union);
-        assert_eq!(results[0].scope, "IntOrFloat");
-        assert!(results[0].signature.contains("union IntOrFloat"));
-    }
-
-    #[test]
-    fn union_not_matched_by_struct() {
-        let src = "union U { i: i32 } struct S { x: i32 }";
-        let results = extract_definitions(&RustParser, "U", &[DefKind::Struct], src);
-        assert!(results.is_empty());
-        let results = extract_definitions(&RustParser, "U", &[DefKind::Union], src);
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn union_with_generics() {
-        let src = "union TaggedValue<T> { int_val: i64, _phantom: std::marker::PhantomData<T>, }";
-        let results = extract_definitions(&RustParser, "TaggedValue", &[DefKind::Union], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("<T>"));
-    }
-
-    #[test]
-    fn union_with_attr() {
-        let src = "#[repr(C)] pub union Data { i: i32, f: f32, }";
-        let results = extract_definitions(&RustParser, "Data", &[DefKind::Union], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("#[repr(C)]"));
-        assert!(results[0].signature.contains("pub"));
-    }
-
-    // --- Field extraction ---
-
-    #[test]
-    fn struct_field_extracted_as_field() {
-        let src = "struct Point { x: i32, y: i32 }";
-        let results = extract_definitions(&RustParser, "x", &[DefKind::Field], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-        assert_eq!(results[0].scope, "Point::x");
-    }
-
-    #[test]
-    fn struct_multiple_fields() {
-        let src = "struct Point { x: i32, y: i32 }";
-        let results = extract_definitions(&RustParser, "y", &[DefKind::Field], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-        assert_eq!(results[0].scope, "Point::y");
-    }
-
-    #[test]
-    fn field_kind_filter_excludes_struct() {
-        let src = "struct Foo { bar: i32 }";
-        let results = extract_definitions(&RustParser, "bar", &[DefKind::Struct], src);
-        assert!(
-            results.is_empty(),
-            "field should not match -k struct, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn field_kind_filter_excludes_method() {
-        let src = "struct S {} impl S { fn bar(&self) {} }";
-        let results = extract_definitions(&RustParser, "bar", &[DefKind::Field], src);
-        assert!(
-            results.is_empty(),
-            "method should not match -k field, got: {results:?}"
-        );
-    }
-
-    // --- Static extraction ---
-
-    #[test]
-    fn static_item_extracted_as_static() {
-        let src = "static MAX_SIZE: usize = 100;";
-        let results = extract_definitions(&RustParser, "MAX_SIZE", &[DefKind::Static], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Static);
-        assert_eq!(results[0].scope, "MAX_SIZE");
-    }
-
-    #[test]
-    fn static_mut_extracted_as_static() {
-        let src = "static mut COUNT: i32 = 0;";
-        let results = extract_definitions(&RustParser, "COUNT", &[DefKind::Static], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Static);
-        assert_eq!(results[0].scope, "COUNT");
-    }
-
-    #[test]
-    fn static_kind_filter_excludes_const() {
-        let src = "static VALUE: i32 = 42; const CONST_VAL: i32 = 1;";
-        let results = extract_definitions(&RustParser, "VALUE", &[DefKind::Const], src);
-        assert!(
-            results.is_empty(),
-            "static should not match -k const, got: {results:?}"
-        );
-        let results = extract_definitions(&RustParser, "CONST_VAL", &[DefKind::Static], src);
-        assert!(
-            results.is_empty(),
-            "const should not match -k static, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn static_inside_mod_scope() {
-        let src = "mod m { static INNER: i32 = 0; }";
-        let results = extract_definitions(&RustParser, "INNER", &[DefKind::Static], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "m::INNER");
-    }
-
-    #[test]
-    fn field_inside_fn_not_extracted() {
-        let src = "fn outer() { struct S { x: i32 } }";
-        let results = extract_definitions(&RustParser, "x", &[DefKind::Field], src);
-        assert!(
-            results.is_empty(),
-            "Function-body field should not be extracted, got: {results:?}"
+    fn attribute_on_enum_variant_sets_start_row() {
+        let source = "\nenum E {\n  #[default]\n  A,\n  B,\n}\n";
+        let defs = extract(source);
+        let a = defs.iter().find(|d| d.scope == "E::A").unwrap();
+        assert_eq!(
+            a.lines[0], 3,
+            "start line should be the #[default] attribute line"
         );
     }
 }

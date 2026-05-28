@@ -8,21 +8,20 @@ A CLI tool that searches for code definitions (functions, classes, structs, etc.
 - **Fast** — Parallel AST extraction with rayon, persistent mmap cache invalidated by mtime + file size
 - **Scope-aware** — Search within scopes like `MyClass::method`, `Module.function`
 - **ripgrep-aligned CLI** — `-i`, `-S`, `-g`, `-l`, `-c`, `-e`, `-w`, `--hidden`, `--no-ignore`, `--json` work like ripgrep
-- **Claude Code plugin** — Install via plugin, use peek directly inside Claude Code sessions
+- **MCP integration** — Built-in MCP server for AI coding tools (Claude Code, Cursor, Codex CLI)
 
 ## Installation
 
-### Claude Code Plugin (recommended)
+### AI Coding Tools (MCP)
 
-Install the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin, then run the ensure command to install or update the `peek` binary:
+peek includes a built-in MCP server. Register with your AI tool:
 
 ```bash
-claude plugins install peek-code@vibewire
+peek register --target claude    # Claude Code
+peek register --target cursor    # Cursor
 ```
 
-After installing the plugin, run `/peek-code:ensure` in a Claude Code session. This detects your platform and installs `peek` via the best available method (Homebrew, cargo-binstall, or cargo install).
-
-To update `peek` later, run `/peek-code:ensure` again.
+This configures the MCP server automatically. AI assistants can then use `peek_def` and `peek_outline` tools directly.
 
 ### Standalone
 

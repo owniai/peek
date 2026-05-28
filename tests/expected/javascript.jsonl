@@ -1,0 +1,44 @@
+{"path": "tests/fixtures/javascript/core.js", "kind": "function", "scope": "topFunc", "signature": "function topFunc(x, y)"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "function", "scope": "asyncFetch", "signature": "async function asyncFetch(url)"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "class", "scope": "MyClass", "signature": "class MyClass extends Base"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "constructor", "scope": "MyClass.constructor", "signature": "constructor(name)"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "method", "scope": "MyClass.regularMethod", "signature": "regularMethod()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "method", "scope": "MyClass.staticHelper", "signature": "static staticHelper()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "getter", "scope": "MyClass.fullName", "signature": "get fullName()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "setter", "scope": "MyClass.fullName", "signature": "set fullName(value)"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "field", "scope": "MyClass.pubField", "signature": "pubField = 1"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "const", "scope": "API_KEY", "signature": "const API_KEY = 'secret'"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "var", "scope": "counter", "signature": "let counter = 0"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "var", "scope": "legacyVar", "signature": "var legacyVar = true"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "function", "scope": "handleClick", "signature": "const handleClick = (e) => e.target"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "function", "scope": "exportedFunc", "signature": "export function exportedFunc()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "class", "scope": "ExportedClass", "signature": "export class ExportedClass"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "const", "scope": "EXPORTED_CONST", "signature": "export const EXPORTED_CONST = 42"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "function", "scope": "process", "signature": "function process()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "method", "scope": "Alpha.process", "signature": "process()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "method", "scope": "Beta.process", "signature": "process()"}
+{"path": "tests/fixtures/javascript/core.js", "kind": "function", "scope": "multiline", "signature": "function multiline( x, y, z )"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "function", "scope": "factory", "signature": "function factory()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "const", "scope": "config", "signature": "const config = { init() { return 1; }, handler: function() { return 2; }, cb: () => 3, name: \"hello\", gen: function*() { yield 1; }, Klass: class { run() {} }, }"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "method", "scope": "config.init", "signature": "init()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "method", "scope": "config.handler", "signature": "handler: function()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "method", "scope": "config.cb", "signature": "cb: () => 3"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "field", "scope": "config.name", "signature": "name: \"hello\""}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "method", "scope": "config.gen", "signature": "gen: function*()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "class", "scope": "config.Klass", "signature": "Klass: class"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "class", "scope": "PrivateFields", "signature": "class PrivateFields"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "field", "scope": "PrivateFields.#privField", "signature": "#privField = 2"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "field", "scope": "PrivateFields.pubField2", "signature": "pubField2 = 3"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "function", "scope": "defaultFunc", "signature": "export default function defaultFunc()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "class", "scope": "DefaultClass", "signature": "export default class DefaultClass"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "const", "scope": "constOnly", "signature": "const constOnly = 'a'"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "var", "scope": "letVar", "signature": "let letVar = 'b'"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "var", "scope": "varOnly", "signature": "var varOnly = 'c'"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "function", "scope": "setup", "signature": "function setup()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "class", "scope": "ExprClass", "signature": "const ExprClass = class { exprMethod() {} }"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "method", "scope": "ExprClass.exprMethod", "signature": "exprMethod()"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "const", "scope": "dynamicObj", "signature": "const dynamicObj = { [computedKey]: 42 }"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "class", "scope": "ArrowField", "signature": "class ArrowField"}
+{"path": "tests/fixtures/javascript/edge.js", "kind": "field", "scope": "ArrowField.arrowProp", "signature": "arrowProp = () => {}"}

@@ -47,6 +47,32 @@ macro_rules! impl_extract_with {
             Ok(results)
         }
     };
+    ($collect:ident, scope: $scope:expr, in_class: $in_class:expr, in_enum: $in_enum:expr) => {
+        fn extract_with(
+            &self,
+            mode: &MatchMode,
+            kinds: &[DefKind],
+            source: &str,
+            parser: &mut Parser,
+        ) -> Result<Vec<DefContent>, ()> {
+            let tree = match parser.parse(source, None) {
+                Some(t) => t,
+                None => return Err(()),
+            };
+            let mut results = Vec::new();
+            $collect(
+                tree.root_node(),
+                source,
+                mode,
+                kinds,
+                &mut results,
+                $scope,
+                $in_class,
+                $in_enum,
+            );
+            Ok(results)
+        }
+    };
 }
 
 pub mod bash;
@@ -59,6 +85,8 @@ pub mod java;
 pub mod javascript;
 pub mod kotlin;
 pub mod lua;
+pub mod luau;
+pub mod objc;
 pub mod php;
 pub mod python;
 pub mod ruby;
@@ -255,53 +283,51 @@ pub fn is_const_declaration(node: Node, source: &str) -> bool {
     false
 }
 
-/// Check if a declaration node represents a static variable declaration
-/// (as opposed to a function prototype, const, or non-static variable).
-///
-/// Returns true when the node has a `storage_class_specifier("static")` child
-/// but is NOT a const declaration (const takes priority) and NOT a function
-/// prototype. Used by both C and C++ parsers.
-pub fn is_static_declaration(node: Node, source: &str) -> bool {
-    // Exclude const declarations -- const takes priority over static
-    if is_const_declaration(node, source) {
-        return false;
-    }
-    // Exclude function prototypes
-    if let Some(mut decl) = node.child_by_field_name("declarator") {
-        loop {
-            match decl.kind() {
-                "function_declarator" => return false,
-                "pointer_declarator" | "parenthesized_declarator" => {
-                    decl = match decl.child_by_field_name("declarator") {
-                        Some(d) => d,
-                        None => break,
-                    };
-                }
-                _ => break,
-            }
-        }
-    }
-    // Check for storage_class_specifier("static")
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "storage_class_specifier" {
-            if let Ok(text) = child.utf8_text(source.as_bytes()) {
-                if text == "static" {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// Extract static variable name from a declarator field.
+/// Extract variable name from a declarator field.
 ///
 /// Uses the same traversal logic as `extract_const_name`:
 /// unwrap `init_declarator`, then unwrap `pointer_declarator` layers,
 /// then return the identifier text.
-pub fn extract_static_name(declarator: Node, source: &str) -> Option<String> {
+pub fn extract_var_name(declarator: Node, source: &str) -> Option<String> {
     extract_const_name(declarator, source)
+}
+
+/// Check if a declaration node has a function declarator (function prototype or definition).
+///
+/// Traverses through `pointer_declarator` and `parenthesized_declarator` wrappers
+/// to find a `function_declarator` at any depth. Used by C/C++ parsers to distinguish
+/// function declarations from variable declarations.
+pub fn has_function_declarator(node: Node) -> bool {
+    let Some(mut decl) = node.child_by_field_name("declarator") else {
+        return false;
+    };
+    loop {
+        match decl.kind() {
+            "function_declarator" => return true,
+            "pointer_declarator" | "parenthesized_declarator" => {
+                decl = match decl.child_by_field_name("declarator") {
+                    Some(d) => d,
+                    None => return false,
+                };
+            }
+            _ => return false,
+        }
+    }
+}
+
+/// Check if a declaration node has `extern` storage class specifier.
+pub fn has_extern_storage_class(node: Node, source: &str) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).any(|c| {
+        c.kind() == "storage_class_specifier" && (c.utf8_text(source.as_bytes()) == Ok("extern"))
+    })
+}
+
+/// Check if a declaration node's declarator has an initializer.
+pub fn has_initializer(node: Node) -> bool {
+    node.child_by_field_name("declarator")
+        .map(|d| d.kind() == "init_declarator")
+        .unwrap_or(false)
 }
 
 /// Extract const variable name from a declarator field.
@@ -398,22 +424,155 @@ pub fn classify_method_definition(node: Node, source: &str) -> DefKind {
         }
     }
 
-    // Check first unnamed child for "get" or "set" literal
+    // Scan unnamed children for "get" or "set" literal, skipping modifiers
+    // (e.g. "abstract", "static", "async", "*" for generators)
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.is_named() {
             break;
         }
         if let Ok(text) = child.utf8_text(source.as_bytes()) {
-            return match text.trim() {
-                "get" => DefKind::Getter,
-                "set" => DefKind::Setter,
-                _ => DefKind::Method,
-            };
+            match text.trim() {
+                "get" => return DefKind::Getter,
+                "set" => return DefKind::Setter,
+                _ => continue,
+            }
         }
     }
 
     DefKind::Method
+}
+
+/// Return the export-aware signature start node: if `node` is wrapped in an
+/// `export_statement`, return that parent; otherwise return `node` itself.
+/// Used by JS and TS parsers to include the `export` keyword in signatures.
+pub fn export_aware_sig_node(node: Node) -> Node {
+    match node.parent() {
+        Some(p) if p.kind() == "export_statement" => p,
+        _ => node,
+    }
+}
+
+/// Handle a `pair` node inside an object literal (e.g., `name: "hello"`,
+/// `handler: function() {}`). Shared by JS and TS parsers.
+///
+/// - Skips `computed_property_name` keys (dynamic keys like `[expr]`).
+/// - Maps function/arrow/generator values → Method, class → Class, others → Field.
+/// - Signature truncates to body start for callable/class values.
+pub fn handle_pair<'a>(
+    node: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let key_node = match node.child_by_field_name("key") {
+        Some(n) if n.kind() != "computed_property_name" => n,
+        _ => return,
+    };
+
+    let name_ref = node_text_ref(key_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let value_node = node.child_by_field_name("value");
+    let def_kind = match value_node.as_ref().map(|v| v.kind()) {
+        Some("function_expression" | "arrow_function" | "generator_function") => DefKind::Method,
+        Some("class") => DefKind::Class,
+        _ => DefKind::Field,
+    };
+
+    if !kinds.contains(&def_kind) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let signature = extract_pair_signature(node, value_node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: def_kind,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Extract signature from a pair node, truncating to body start for
+/// function/arrow/generator/class values.
+fn extract_pair_signature(pair: Node, value: Option<Node>, source: &str) -> String {
+    let end_byte = match value {
+        Some(v) => match v.kind() {
+            "function_expression" | "generator_function" => {
+                first_child_by_kind(v, "statement_block")
+                    .map(|b| b.start_byte())
+                    .unwrap_or_else(|| pair.end_byte())
+            }
+            "arrow_function" => first_child_by_kind(v, "statement_block")
+                .map(|b| b.start_byte())
+                .unwrap_or_else(|| pair.end_byte()),
+            "class" => v
+                .child_by_field_name("body")
+                .map(|b| b.start_byte())
+                .unwrap_or_else(|| pair.end_byte()),
+            _ => pair.end_byte(),
+        },
+        None => pair.end_byte(),
+    };
+
+    flatten_bytes(pair.start_byte(), end_byte, source)
+        .unwrap_or_else(|| first_line_of_node(pair, source))
+}
+
+/// Handle `variable_declaration` node (var keyword): extract as Var kind.
+/// Shared by JS and TS parsers since the AST structure is identical.
+pub fn handle_var_decl<'a>(
+    node: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Var) {
+        return;
+    }
+
+    let sig_start_node = export_aware_sig_node(node);
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "variable_declarator" {
+            continue;
+        }
+
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) => n,
+            None => continue,
+        };
+        let name_ref = node_text_ref(name_node, source);
+
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+
+        let name = name_ref.to_string();
+        let own_scope = build_scope(scope, ".", &name);
+        let signature = flatten_bytes(sig_start_node.start_byte(), child.end_byte(), source)
+            .unwrap_or_else(|| first_line_of_node(sig_start_node, source));
+        let start_row = sig_start_node.start_position().row + 1;
+        let [start, end] = line_range(start_row, node);
+
+        results.push(DefContent {
+            kind: DefKind::Var,
+            lines: [start, end],
+            signature,
+            scope: own_scope,
+        });
+    }
 }
 
 /// Build a scope string by joining parent and name with a separator.
@@ -480,553 +639,46 @@ pub fn handle_macro(
     });
 }
 
-#[cfg(test)]
-pub fn extract_definitions<P: LanguageParser>(
-    parser: &P,
-    name: &str,
-    kinds: &[DefKind],
-    source: &str,
-) -> Vec<DefContent> {
-    let mode = MatchMode::from_user_input(name, false, false).unwrap();
-    let mut ts_parser = parser.init_parser();
-    parser
-        .extract_with(&mode, kinds, source, &mut ts_parser)
-        .unwrap()
+/// Classify a Lua/Luau metamethod name into the appropriate DefKind.
+///
+/// Shared by both Lua and Luau parsers since metamethod names and their
+/// classifications are identical across both languages.
+pub fn classify_metamethod(name: &str) -> Option<DefKind> {
+    match name {
+        "__add" | "__sub" | "__mul" | "__div" | "__mod" | "__pow" | "__unm" | "__concat"
+        | "__eq" | "__lt" | "__le" | "__len" | "__call" | "__band" | "__bor" | "__bxor"
+        | "__bnot" | "__shl" | "__shr" | "__idiv" | "__pairs" | "__ipairs" => {
+            Some(DefKind::Operator)
+        }
+        "__index" => Some(DefKind::Getter),
+        "__newindex" => Some(DefKind::Setter),
+        "__gc" | "__close" => Some(DefKind::Destructor),
+        "__tostring" => Some(DefKind::Operator),
+        _ => None,
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct MockParser;
-
-    impl LanguageParser for MockParser {
-        fn language(&self) -> &'static str {
-            "mock"
+/// Extract function name from a Lua/Luau name node (identifier, dot_index_expression,
+/// or method_index_expression).
+///
+/// Returns `(full_path, final_name)` — e.g., `("app.models.create_user", "create_user")`.
+/// Shared by both Lua and Luau parsers since the node types and field names are identical.
+pub fn extract_dotted_name(name_node: Node, source: &str) -> Option<(String, String)> {
+    match name_node.kind() {
+        "identifier" => {
+            let text = node_text(name_node, source);
+            Some((text.clone(), text))
         }
-        fn extensions(&self) -> &'static [&'static str] {
-            &[".mock"]
+        "dot_index_expression" | "method_index_expression" => {
+            let table = name_node.child_by_field_name("table")?;
+            let child = name_node
+                .child_by_field_name("field")
+                .or_else(|| name_node.child_by_field_name("method"))?;
+            let (table_path, _) = extract_dotted_name(table, source)?;
+            let child_text = node_text(child, source);
+            let full_path = format!("{}.{}", table_path, child_text);
+            Some((full_path, child_text))
         }
-        fn supported_kinds(&self) -> &'static [DefKind] {
-            &[DefKind::Function]
-        }
-        fn init_parser(&self) -> Parser {
-            Parser::new()
-        }
-        fn extract_with(
-            &self,
-            mode: &MatchMode,
-            kinds: &[DefKind],
-            _source: &str,
-            _parser: &mut Parser,
-        ) -> Result<Vec<DefContent>, ()> {
-            if kinds.contains(&DefKind::Function) {
-                let name = match mode {
-                    MatchMode::Regex { .. } => "test".to_string(),
-                    MatchMode::All => "*".to_string(),
-                };
-                Ok(vec![DefContent {
-                    kind: DefKind::Function,
-                    lines: [1, 1],
-                    signature: format!("fn {}()", name),
-                    scope: name,
-                }])
-            } else {
-                Ok(vec![])
-            }
-        }
-    }
-
-    #[test]
-    fn mock_parser_language_and_extensions() {
-        let p = MockParser;
-        assert_eq!(p.language(), "mock");
-        assert_eq!(p.extensions(), &[".mock"]);
-    }
-
-    #[test]
-    fn mock_parser_extract_filters_by_kind() {
-        let p = MockParser;
-        let mode = MatchMode::from_user_input("test", false, false).unwrap();
-        let mut parser = p.init_parser();
-        let results = p
-            .extract_with(&mode, &[DefKind::Function], "", &mut parser)
-            .unwrap();
-        assert_eq!(results.len(), 1);
-        let mut parser = p.init_parser();
-        let empty = p
-            .extract_with(&mode, &[DefKind::Class], "", &mut parser)
-            .unwrap();
-        assert!(empty.is_empty());
-    }
-
-    // --- Helper: parse C source and return root node ---
-    fn parse_c(source: &str) -> (tree_sitter::Tree, &str) {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_c::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        (tree, source)
-    }
-
-    // --- Helper: parse C++ source and return root node ---
-    fn parse_cpp(source: &str) -> (tree_sitter::Tree, &str) {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_cpp::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(source, None).unwrap();
-        (tree, source)
-    }
-
-    // --- Helper: find first node of a given kind in the tree ---
-    fn find_node_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-        if node.kind() == kind {
-            return Some(node);
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(found) = find_node_by_kind(child, kind) {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    // ============================================================
-    // node_text_ref tests
-    // ============================================================
-
-    #[test]
-    fn node_text_ref_matches_node_text() {
-        let source = "int my_function(int a) { return a; }";
-        let (tree, src) = parse_c(source);
-        let func_def = find_node_by_kind(tree.root_node(), "function_definition").unwrap();
-        let declarator = func_def.child_by_field_name("declarator").unwrap();
-        let fd = find_node_by_kind(declarator, "identifier").unwrap();
-
-        assert_eq!(node_text(fd, src), "my_function");
-        assert_eq!(node_text_ref(fd, src), "my_function");
-        // Verify node_text_ref returns &str borrowing from source
-        assert!(std::ptr::eq(
-            node_text_ref(fd, src).as_ptr(),
-            src[node_text_ref(fd, src).as_ptr() as usize - src.as_ptr() as usize..].as_ptr()
-        ));
-    }
-
-    #[test]
-    fn node_text_ref_empty_for_missing_node() {
-        // An identifier node with no text should return empty string
-        let source = "int x;";
-        let (tree, src) = parse_c(source);
-        let id = find_node_by_kind(tree.root_node(), "identifier").unwrap();
-        // Both functions should return "x" for a valid node
-        assert_eq!(node_text(id, src), "x");
-        assert_eq!(node_text_ref(id, src), "x");
-    }
-
-    // ============================================================
-    // extract_function_name tests
-    // ============================================================
-
-    #[test]
-    fn extract_function_name_plain_c_function() {
-        let source = "int add(int a, int b) { return a + b; }";
-        let (tree, src) = parse_c(source);
-        let func_def = find_node_by_kind(tree.root_node(), "function_definition").unwrap();
-        let declarator = func_def.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_function_name(declarator, src),
-            Some("add".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_function_name_pointer_return_function() {
-        let source = "char *duplicate_string(const char *src) { return ((void*)0); }";
-        let (tree, src) = parse_c(source);
-        let func_def = find_node_by_kind(tree.root_node(), "function_definition").unwrap();
-        let declarator = func_def.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_function_name(declarator, src),
-            Some("duplicate_string".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_function_name_cpp_member_function() {
-        // In C++, a member function with body inside a class is a function_definition,
-        // not a field_declaration.
-        let source = "class Hero { int getPower() const { return power; } };";
-        let (tree, src) = parse_cpp(source);
-        // Find the function_definition node inside the class
-        let func_def = find_node_by_kind(tree.root_node(), "function_definition").unwrap();
-        let declarator = func_def.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_function_name(declarator, src),
-            Some("getPower".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_function_name_plain_identifier_returns_none() {
-        let source = "int add(int a, int b) { return a + b; }";
-        let (tree, src) = parse_c(source);
-        // Find a plain identifier node (e.g., parameter name 'a')
-        let identifier = find_node_by_kind(tree.root_node(), "identifier").unwrap();
-        assert_eq!(super::extract_function_name(identifier, src), None);
-    }
-
-    #[test]
-    fn extract_function_name_cpp_qualified_identifier() {
-        // Out-of-class method definition: void Engine::start() {}
-        // The function_declarator's declarator field is a qualified_identifier
-        // "Engine::start" — should return just "start" (the short name).
-        let source = "void Engine::start() { }";
-        let (tree, src) = parse_cpp(source);
-        let func_def = find_node_by_kind(tree.root_node(), "function_definition").unwrap();
-        let declarator = func_def.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_function_name(declarator, src),
-            Some("start".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_function_name_parenthesized_declarator() {
-        // Declaration: void ((*signal(int sig)))(int);
-        // This creates nested parenthesized_declarator wrapping a pointer_declarator
-        // -> function_declarator -> identifier "signal".
-        // We pass the inner parenthesized_declarator to verify recursive penetration
-        // through parenthesized_declarator -> pointer_declarator -> function_declarator.
-        let source = "void ((*signal(int sig)))(int);";
-        let (tree, src) = parse_c(source);
-        // There are two parenthesized_declarator nodes; find all and use the inner one
-        // that directly wraps pointer_declarator.
-        let all_paren: Vec<Node> = {
-            fn collect<'a>(node: Node<'a>, acc: &mut Vec<Node<'a>>) {
-                if node.kind() == "parenthesized_declarator" {
-                    acc.push(node);
-                }
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    collect(child, acc);
-                }
-            }
-            let mut acc = Vec::new();
-            collect(tree.root_node(), &mut acc);
-            acc
-        };
-        // The innermost parenthesized_declarator wraps pointer_declarator -> function_declarator
-        let inner_paren = all_paren.last().unwrap();
-        assert_eq!(
-            super::extract_function_name(*inner_paren, src),
-            Some("signal".to_string())
-        );
-    }
-
-    // ============================================================
-    // is_const_declaration tests
-    // ============================================================
-
-    #[test]
-    fn is_const_declaration_const_var() {
-        let source = "const int MAX = 100;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(super::is_const_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_const_declaration_constexpr_var() {
-        let source = "constexpr int MAX_THREADS = 16;";
-        let (tree, src) = parse_cpp(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(super::is_const_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_const_declaration_non_const() {
-        let source = "int x = 1;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(!super::is_const_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_const_declaration_volatile_is_not_const() {
-        let source = "volatile int x;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(!super::is_const_declaration(decl, src));
-    }
-
-    // ============================================================
-    // extract_const_name tests
-    // ============================================================
-
-    #[test]
-    fn extract_const_name_with_initializer() {
-        let source = "const int MAX = 100;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_const_name(declarator, src),
-            Some("MAX".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_const_name_pointer_const() {
-        let source = "const char *MSG = \"hello\";";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_const_name(declarator, src),
-            Some("MSG".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_const_name_without_initializer() {
-        let source = "const int LIMIT;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_const_name(declarator, src),
-            Some("LIMIT".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_const_name_double_pointer() {
-        let source = "const char **PTR = ((void*)0);";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_const_name(declarator, src),
-            Some("PTR".to_string())
-        );
-    }
-
-    // ============================================================
-    // normalize_signature tests
-    // ============================================================
-
-    #[test]
-    fn normalize_signature_no_spaces_unchanged() {
-        assert_eq!(super::normalize_signature("foo()"), "foo()");
-    }
-
-    #[test]
-    fn normalize_signature_empty_parens_with_spaces() {
-        assert_eq!(super::normalize_signature("foo( )"), "foo()");
-    }
-
-    #[test]
-    fn normalize_signature_collapse_and_trim_parens() {
-        assert_eq!(super::normalize_signature("  foo  (  x  )  "), "foo(x)");
-    }
-
-    #[test]
-    fn normalize_signature_params_with_types() {
-        assert_eq!(
-            super::normalize_signature("pub fn foo  (  x : int  )"),
-            "pub fn foo(x : int)"
-        );
-    }
-
-    #[test]
-    fn normalize_signature_multiple_paren_groups() {
-        assert_eq!(super::normalize_signature("foo( ) ( )"), "foo()()");
-    }
-
-    #[test]
-    fn normalize_signature_only_whitespace() {
-        assert_eq!(super::normalize_signature("   "), "");
-    }
-
-    #[test]
-    fn normalize_signature_empty() {
-        assert_eq!(super::normalize_signature(""), "");
-    }
-
-    #[test]
-    fn normalize_signature_nested_parens() {
-        assert_eq!(super::normalize_signature("foo((x))"), "foo((x))");
-    }
-
-    // ============================================================
-    // build_scope tests
-    // ============================================================
-
-    #[test]
-    fn build_scope_empty_parent_returns_name() {
-        assert_eq!(super::build_scope("", ".", "Foo"), "Foo");
-    }
-
-    #[test]
-    fn build_scope_empty_name_returns_parent() {
-        assert_eq!(super::build_scope("Parent", ".", ""), "Parent");
-    }
-
-    #[test]
-    fn build_scope_both_empty_returns_empty() {
-        assert_eq!(super::build_scope("", ".", ""), "");
-    }
-
-    #[test]
-    fn build_scope_dot_separator() {
-        assert_eq!(super::build_scope("Outer", ".", "Inner"), "Outer.Inner");
-    }
-
-    #[test]
-    fn build_scope_double_colon_separator() {
-        assert_eq!(super::build_scope("Outer", "::", "Inner"), "Outer::Inner");
-    }
-
-    #[test]
-    fn build_scope_backslash_separator() {
-        assert_eq!(
-            super::build_scope("App\\Services", "\\", "User"),
-            "App\\Services\\User"
-        );
-    }
-
-    // ============================================================
-    // build_scope_from_node tests
-    // ============================================================
-
-    #[test]
-    fn build_scope_from_node_extracts_name_dot() {
-        // C++ class_specifier has a "name" field pointing to type_identifier
-        let source = "class MyClass { int x; };";
-        let (tree, src) = parse_cpp(source);
-        let class_node = find_node_by_kind(tree.root_node(), "class_specifier").unwrap();
-        assert_eq!(
-            super::build_scope_from_node(class_node, src, "Outer", "."),
-            "Outer.MyClass"
-        );
-    }
-
-    #[test]
-    fn build_scope_from_node_empty_parent() {
-        let source = "class MyClass { int x; };";
-        let (tree, src) = parse_cpp(source);
-        let class_node = find_node_by_kind(tree.root_node(), "class_specifier").unwrap();
-        assert_eq!(
-            super::build_scope_from_node(class_node, src, "", "."),
-            "MyClass"
-        );
-    }
-
-    #[test]
-    fn build_scope_from_node_no_name_field_returns_parent() {
-        // A C translation_unit has no "name" field → name is empty → returns parent
-        let source = "int x;";
-        let (tree, src) = parse_c(source);
-        let root = tree.root_node();
-        assert_eq!(
-            super::build_scope_from_node(root, src, "Parent", "."),
-            "Parent"
-        );
-    }
-
-    // ============================================================
-    // is_static_declaration tests
-    // ============================================================
-
-    #[test]
-    fn is_static_declaration_static_var() {
-        let source = "static int count = 0;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(super::is_static_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_static_declaration_non_static() {
-        let source = "int x = 1;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(!super::is_static_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_static_declaration_static_function_prototype_not_static() {
-        // static function prototypes should be excluded (they are Function kind)
-        let source = "static void helper(void);";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(!super::is_static_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_static_declaration_const_var_not_static() {
-        let source = "const int MAX = 100;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(!super::is_static_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_static_declaration_static_const_var_not_static() {
-        // `static const int X = 1;` is both static and const.
-        // It should be recognized as const (handled by is_const_declaration)
-        // rather than static, because const is the more specific qualifier.
-        // is_static_declaration must exclude const declarations.
-        let source = "static const int VERSION = 2;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(!super::is_static_declaration(decl, src));
-    }
-
-    #[test]
-    fn is_static_declaration_cpp_static_var() {
-        let source = "static int buffer_size = 4096;";
-        let (tree, src) = parse_cpp(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        assert!(super::is_static_declaration(decl, src));
-    }
-
-    #[test]
-    fn extract_static_name_with_initializer() {
-        let source = "static int count = 0;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_static_name(declarator, src),
-            Some("count".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_static_name_without_initializer() {
-        let source = "static int count;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_static_name(declarator, src),
-            Some("count".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_static_name_pointer_var() {
-        let source = "static char *name;";
-        let (tree, src) = parse_c(source);
-        let decl = find_node_by_kind(tree.root_node(), "declaration").unwrap();
-        let declarator = decl.child_by_field_name("declarator").unwrap();
-        assert_eq!(
-            super::extract_static_name(declarator, src),
-            Some("name".to_string())
-        );
+        _ => None,
     }
 }

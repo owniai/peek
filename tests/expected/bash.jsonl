@@ -1,0 +1,29 @@
+{"path": "tests/fixtures/bash/core.sh", "kind": "function", "scope": "build_project", "signature": "function build_project"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "function", "scope": "run_tests", "signature": "run_tests()"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "const", "scope": "APP_VERSION", "signature": "readonly APP_VERSION"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "const", "scope": "MAX_RETRIES", "signature": "declare -r MAX_RETRIES"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "const", "scope": "SMTP_PORT", "signature": "readonly SMTP_PORT"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "const", "scope": "MAX_CONNECTIONS", "signature": "readonly SMTP_PORT=587 MAX_CONNECTIONS"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "var", "scope": "config_path", "signature": "config_path"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "var", "scope": "timeout_seconds", "signature": "timeout_seconds"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "function", "scope": "configure", "signature": "function configure"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "const", "scope": "configure::CONFIG_DIR", "signature": "readonly CONFIG_DIR"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "function", "scope": "configure::load_config", "signature": "function load_config"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "function", "scope": "setup", "signature": "function setup"}
+{"path": "tests/fixtures/bash/core.sh", "kind": "const", "scope": "setup::SETUP_PATH", "signature": "declare -r SETUP_PATH"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "GLOBAL_API_KEY", "signature": "declare -rx GLOBAL_API_KEY"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "GLOBAL_CONFIG", "signature": "declare -rg GLOBAL_CONFIG"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "SIMPLE_CONST", "signature": "declare -r SIMPLE_CONST"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "TYPESET_CONST", "signature": "typeset -r TYPESET_CONST"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "setup_env", "signature": "function setup_env"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "setup_env::LOCAL_CONST", "signature": "local -r LOCAL_CONST"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "with_local", "signature": "function with_local"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "deploy", "signature": "deploy()"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "deploy::validate_env", "signature": "function validate_env"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "deploy::DEPLOY_TARGET", "signature": "readonly DEPLOY_TARGET"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "main", "signature": "function main"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "main::init", "signature": "function init"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "main::init::INIT_FLAG", "signature": "readonly INIT_FLAG"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "main::init::finalize", "signature": "function finalize"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "function", "scope": "configure_app", "signature": "function configure_app"}
+{"path": "tests/fixtures/bash/edge.sh", "kind": "const", "scope": "configure_app::CONFIG_DIR", "signature": "readonly CONFIG_DIR"}

@@ -1,0 +1,38 @@
+{"path": "tests/fixtures/objc/core.m", "kind": "class", "scope": "Vehicle", "signature": "@interface Vehicle : NSObject"}
+{"path": "tests/fixtures/objc/core.m", "kind": "field", "scope": "Vehicle._model", "signature": "NSString *_model;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "field", "scope": "Vehicle._year", "signature": "NSInteger _year;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "property", "scope": "Vehicle.model", "signature": "@property (nonatomic, strong) NSString *model;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "property", "scope": "Vehicle.year", "signature": "@property (nonatomic, assign) NSInteger year;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method_declaration", "scope": "Vehicle.startEngine", "signature": "-(void)startEngine;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method_declaration", "scope": "Vehicle.defaultVehicle", "signature": "+(id)defaultVehicle;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "extension", "scope": "Vehicle", "signature": "@interface Vehicle()"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method_declaration", "scope": "Vehicle.privateSetup", "signature": "-(void)privateSetup;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "extension", "scope": "Vehicle.Maintenance", "signature": "@interface Vehicle(Maintenance)"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method_declaration", "scope": "Vehicle.Maintenance.performMaintenance", "signature": "-(void)performMaintenance;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "class", "scope": "Vehicle", "signature": "@implementation Vehicle"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method", "scope": "Vehicle.startEngine", "signature": "-(void)startEngine"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method", "scope": "Vehicle.defaultVehicle", "signature": "+(id)defaultVehicle"}
+{"path": "tests/fixtures/objc/core.m", "kind": "protocol", "scope": "Drivable", "signature": "@protocol Drivable"}
+{"path": "tests/fixtures/objc/core.m", "kind": "method_declaration", "scope": "Drivable.drive", "signature": "-(void)drive;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "property", "scope": "Drivable.destination", "signature": "@property (nonatomic, strong) NSString *destination;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "class_declaration", "scope": "Person", "signature": "@class Person;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "enum", "scope": "Direction", "signature": "typedef NS_ENUM(NSInteger, Direction) {"}
+{"path": "tests/fixtures/objc/core.m", "kind": "function", "scope": "computeLength", "signature": "int computeLength(void)"}
+{"path": "tests/fixtures/objc/core.m", "kind": "function_declaration", "scope": "logMessage", "signature": "void logMessage(void);"}
+{"path": "tests/fixtures/objc/core.m", "kind": "const_declaration", "scope": "kMaxRetries", "signature": "extern const int kMaxRetries;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "macro", "scope": "VERSION", "signature": "#define VERSION 2"}
+{"path": "tests/fixtures/objc/core.m", "kind": "struct", "scope": "Point", "signature": "typedef struct { double x; double y; } Point;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "field", "scope": "Point.x", "signature": "double x;"}
+{"path": "tests/fixtures/objc/core.m", "kind": "field", "scope": "Point.y", "signature": "double y;"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "extension", "scope": "Vehicle.Maintenance", "signature": "@implementation Vehicle(Maintenance)"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "method", "scope": "Vehicle.Maintenance.performMaintenance", "signature": "-(void)performMaintenance"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "protocol", "scope": "Serializable", "signature": "@protocol Serializable"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "method_declaration", "scope": "Serializable.serialize", "signature": "-(void)serialize;"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "method_declaration", "scope": "Serializable.deserialize", "signature": "-(void)deserialize;"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "struct", "scope": "Size", "signature": "typedef struct {"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "field", "scope": "Size.width", "signature": "float width;"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "field", "scope": "Size.height", "signature": "float height;"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "class", "scope": "Standalone", "signature": "@implementation Standalone"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "method", "scope": "Standalone.doWork", "signature": "-(void)doWork"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "class", "scope": "BaseClass", "signature": "@interface BaseClass"}
+{"path": "tests/fixtures/objc/edge.m", "kind": "method_declaration", "scope": "BaseClass.initialize", "signature": "-(void)initialize;"}

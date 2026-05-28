@@ -1,0 +1,65 @@
+{"path": "tests/fixtures/typescript/core.ts", "kind": "function", "scope": "topFunc", "signature": "export function topFunc(x: number): string"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "function", "scope": "simpleFunc", "signature": "function simpleFunc(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "const", "scope": "maxRetries", "signature": "const maxRetries: number = 3"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "const", "scope": "exportedConst", "signature": "export const exportedConst = \"hello\""}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "var", "scope": "mutableVar", "signature": "let mutableVar: string = \"hello\""}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "var", "scope": "exportedVar", "signature": "export let exportedVar = 42"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "class", "scope": "MyClass", "signature": "abstract class MyClass"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "field", "scope": "MyClass.name", "signature": "name: string = \"default\""}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "constructor", "scope": "MyClass.constructor", "signature": "constructor(input: string)"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "method", "scope": "MyClass.regularMethod", "signature": "regularMethod(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "getter", "scope": "MyClass.count", "signature": "get count(): number"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "setter", "scope": "MyClass.count", "signature": "set count(value: number)"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "class", "scope": "ExportedClass", "signature": "export class ExportedClass"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "class", "scope": "FieldClass", "signature": "class FieldClass"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "field", "scope": "FieldClass.publicId", "signature": "publicId: number"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "interface", "scope": "MyInterface", "signature": "interface MyInterface"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "property_declaration", "scope": "MyInterface.id", "signature": "id: number"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "subscript_declaration", "scope": "MyInterface.[key: string]", "signature": "[key: string]: unknown"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "alias", "scope": "Point", "signature": "type Point = { x: number; y: number };"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "enum", "scope": "Color", "signature": "enum Color"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "variant", "scope": "Color.Red", "signature": "Red"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "namespace", "scope": "MyApp", "signature": "namespace MyApp"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "function", "scope": "MyApp.nsHelper", "signature": "export function nsHelper(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "class", "scope": "MyApp.NsClass", "signature": "export class NsClass"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "namespace", "scope": "ModSpace", "signature": "module ModSpace"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "function", "scope": "ModSpace.modFunc", "signature": "export function modFunc(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "module_declaration", "scope": "express", "signature": "module \"express\""}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "interface", "scope": "express.Request", "signature": "export interface Request"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "module_declaration", "scope": "./relative-module", "signature": "module \"./relative-module\""}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "const", "scope": "./relative-module.value", "signature": "export const value: number"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "module_declaration", "scope": "shorthand", "signature": "module \"shorthand\""}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "namespace", "scope": "L1", "signature": "namespace L1"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "namespace", "scope": "L1.L2", "signature": "namespace L2"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "namespace", "scope": "L1.L2.L3", "signature": "namespace L3"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "function", "scope": "L1.L2.L3.deepFunc", "signature": "export function deepFunc(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "function", "scope": "process", "signature": "function process(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "method", "scope": "Alpha.process", "signature": "process(): void"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/typescript/core.ts", "kind": "method", "scope": "Beta.process", "signature": "process(): void"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "function_declaration", "scope": "declaredFunc", "signature": "function declaredFunc(x: number): void;"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "interface", "scope": "DeclarationInterface", "signature": "interface DeclarationInterface"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "method_declaration", "scope": "DeclarationInterface.declaredMethod", "signature": "declaredMethod(y: string): number"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "getter_declaration", "scope": "DeclarationInterface.declaredGetter", "signature": "get declaredGetter(): string"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "setter_declaration", "scope": "DeclarationInterface.declaredSetter", "signature": "set declaredSetter(v: string)"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "property_declaration", "scope": "DeclarationInterface.declaredProperty", "signature": "declaredProperty: boolean"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "subscript_declaration", "scope": "DeclarationInterface.[key: string]", "signature": "[key: string]: unknown"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "constructor_declaration", "scope": "DeclarationInterface.new", "signature": "new(x: number): DeclarationInterface"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "method_declaration", "scope": "DeclarationInterface.call", "signature": "(input: string): void"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "const_declaration", "scope": "declaredConst", "signature": "declare const declaredConst: string"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "var_declaration", "scope": "declaredLet", "signature": "declare let declaredLet: number"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "var_declaration", "scope": "declaredVar", "signature": "declare var declaredVar: boolean"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "class_declaration", "scope": "DeclaredAbstractClass", "signature": "declare abstract class DeclaredAbstractClass"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "method_declaration", "scope": "DeclaredAbstractClass.doStuff", "signature": "abstract doStuff(): void"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "enum_declaration", "scope": "DeclaredEnum", "signature": "declare enum DeclaredEnum"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "variant", "scope": "DeclaredEnum.A", "signature": "A"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "function", "scope": "factory", "signature": "function factory()"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "const", "scope": "satisfiesConfig", "signature": "const satisfiesConfig = { init() {}, destroy() {} } satisfies Record<string, Function>"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "method", "scope": "satisfiesConfig.init", "signature": "init()"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "method", "scope": "satisfiesConfig.destroy", "signature": "destroy()"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "function", "scope": "asHandler", "signature": "const asHandler = ((msg: string) => msg.toUpperCase()) as (s: string) => string"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "class", "scope": "satisfiesService", "signature": "const satisfiesService = class { process() {} } satisfies { process(): void }"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "method", "scope": "satisfiesService.process", "signature": "process()"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "function", "scope": "TsxComponent", "signature": "function TsxComponent()"}
+{"path": "tests/fixtures/typescript/edge.ts", "kind": "function", "scope": "TsxArrow", "signature": "const TsxArrow = () => null"}

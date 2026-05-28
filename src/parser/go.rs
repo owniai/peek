@@ -5,27 +5,33 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "go";
+pub(crate) const EXTENSIONS: &[&str] = &["go"];
+pub(crate) const ALIASES: &[&str] = &["golang"];
+
 pub struct GoParser;
 
 impl LanguageParser for GoParser {
     fn language(&self) -> &'static str {
-        "go"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".go"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Struct,
             DefKind::Interface,
             DefKind::Alias,
             DefKind::Const,
             DefKind::Field,
             DefKind::Package,
+            DefKind::Var,
         ]
     }
 
@@ -73,6 +79,10 @@ fn collect_definitions<'a>(
         }
         "const_declaration" => {
             handle_const_declaration(node, source, mode, kinds, results);
+            return;
+        }
+        "var_declaration" => {
+            handle_var_declaration(node, source, mode, kinds, results);
             return;
         }
         _ => {}
@@ -344,11 +354,27 @@ fn handle_struct_fields<'a>(
     let mut cursor = body.walk();
     for child in body.children(&mut cursor) {
         if child.kind() == "field_declaration" {
-            let name_node = match child.child_by_field_name("name") {
-                Some(n) => n,
-                None => continue, // Skip embedded fields without explicit name
+            // Regular field has "name" field (field_identifier); embedded field has only "type"
+            let name_ref = if let Some(n) = child.child_by_field_name("name") {
+                node_text_ref(n, source)
+            } else {
+                // Embedded field: extract name from type node
+                let type_node = match child.child_by_field_name("type") {
+                    Some(t) => t,
+                    None => continue,
+                };
+                match type_node.kind() {
+                    "type_identifier" => node_text_ref(type_node, source),
+                    "qualified_type" => {
+                        // *http.Server or http.Server → extract the "Server" part
+                        match type_node.child_by_field_name("name") {
+                            Some(n) => node_text_ref(n, source),
+                            None => continue,
+                        }
+                    }
+                    _ => continue,
+                }
             };
-            let name_ref = node_text_ref(name_node, source);
             if mode.matches_ident(name_ref) {
                 let name = name_ref.to_string();
                 let scope = format!("{}.{}", struct_name, name);
@@ -378,7 +404,11 @@ fn find_opening_brace(iface: Node) -> usize {
     iface.end_byte()
 }
 
-/// Extract method_elem from an interface_type as Method definitions.
+/// Extract method_elem from an interface_type as MethodDeclaration definitions.
+///
+/// Interface methods are always declarations (no body), so they use MethodDeclaration
+/// instead of Method. This allows `-k method_declaration` to match only interface methods,
+/// while `-k method` expands to include both Method and MethodDeclaration.
 fn handle_interface_methods<'a>(
     iface: Node<'a>,
     iface_name: &str,
@@ -387,7 +417,9 @@ fn handle_interface_methods<'a>(
     kinds: &[DefKind],
     results: &mut Vec<DefContent>,
 ) {
-    if !kinds.contains(&DefKind::Method) {
+    // Interface methods are declarations; check for both Method (expanded by kinds_from_tag)
+    // and MethodDeclaration to handle -k method and -k method_declaration filters.
+    if !kinds.contains(&DefKind::Method) && !kinds.contains(&DefKind::MethodDeclaration) {
         return;
     }
 
@@ -404,7 +436,7 @@ fn handle_interface_methods<'a>(
                     let start_row = child.start_position().row + 1;
                     let [start, end] = line_range(start_row, child);
                     results.push(DefContent {
-                        kind: DefKind::Method,
+                        kind: DefKind::MethodDeclaration,
                         lines: [start, end],
                         signature,
                         scope,
@@ -458,6 +490,56 @@ fn handle_const_spec<'a>(
     }
 }
 
+fn handle_var_declaration<'a>(
+    node: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    if !kinds.contains(&DefKind::Var) {
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "var_spec" {
+            handle_var_spec(child, source, mode, results);
+        } else if child.kind() == "var_spec_list" {
+            let mut inner = child.walk();
+            for spec in child.children(&mut inner) {
+                if spec.kind() == "var_spec" {
+                    handle_var_spec(spec, source, mode, results);
+                }
+            }
+        }
+    }
+}
+
+fn handle_var_spec<'a>(
+    node: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+) {
+    let mut cursor = node.walk();
+    for name_node in node.children_by_field_name("name", &mut cursor) {
+        let name_ref = node_text_ref(name_node, source);
+        if mode.matches_ident(name_ref) {
+            let name = name_ref.to_string();
+            let signature = node_text(node, source);
+            let start_row = node.start_position().row + 1;
+            let [start, end] = line_range(start_row, node);
+            results.push(DefContent {
+                kind: DefKind::Var,
+                lines: [start, end],
+                signature,
+                scope: name,
+            });
+        }
+    }
+}
+
 /// Extract signature from node start to the `block` body boundary.
 fn extract_signature_to_block(node: Node, source: &str) -> String {
     let body = first_child_by_kind(node, "block");
@@ -466,112 +548,4 @@ fn extract_signature_to_block(node: Node, source: &str) -> String {
         .unwrap_or_else(|| node.end_byte());
     flatten_bytes(node.start_byte(), end_byte, source)
         .unwrap_or_else(|| first_line_of_node(node, source))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // --- Bug: grouped type declaration line range ---
-
-    #[test]
-    fn grouped_type_struct_line_range() {
-        let src = "type (\n\tGroupedPoint struct {\n\t\tX float64\n\t\tY float64\n\t}\n\tGroupedHandler interface {\n\t\tHandle() error\n\t}\n\tGroupedInt int\n)";
-        let results = extract_definitions(&GoParser, "GroupedPoint", &[DefKind::Struct], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].lines[0], 2,
-            "start line should be 2 (where GroupedPoint is defined), not 1 (where 'type (' is)"
-        );
-    }
-
-    #[test]
-    fn grouped_type_interface_line_range() {
-        let src = "type (\n\tGroupedPoint struct {\n\t\tX float64\n\t}\n\tGroupedHandler interface {\n\t\tHandle() error\n\t}\n)";
-        let results = extract_definitions(&GoParser, "GroupedHandler", &[DefKind::Interface], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].lines[0], 5,
-            "start line should be 5 (where GroupedHandler is defined), not 1 (where 'type (' is)"
-        );
-    }
-
-    #[test]
-    fn grouped_type_definition_line_range() {
-        let src = "type (\n\tGroupedPoint struct { X float64 }\n\tGroupedInt int\n)";
-        let results = extract_definitions(&GoParser, "GroupedInt", &[DefKind::Alias], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].lines[0], 3,
-            "start line should be 3 (where GroupedInt is defined), not 1 (where 'type (' is)"
-        );
-    }
-
-    #[test]
-    fn grouped_type_no_duplicate_extraction() {
-        let src = "package p\n\ntype (\n\tFoo struct { X int }\n\tBar interface { Do() }\n\tAlias int\n)\n\ntype Standalone struct { Y int }";
-        let all_kinds = &[DefKind::Struct, DefKind::Interface, DefKind::Alias];
-        let results = extract_definitions(&GoParser, "", all_kinds, src);
-        let scopes: Vec<&str> = results.iter().map(|r| r.scope.as_str()).collect();
-        assert_eq!(
-            results.len(),
-            4,
-            "expected exactly 4 definitions, got {scopes:?}"
-        );
-    }
-
-    #[test]
-    fn grouped_const_no_duplicate_extraction() {
-        let src = "package p\n\nconst (\n\tA = 1\n\tB = 2\n\tC = 3\n)\n\nconst D = 4";
-        let results = extract_definitions(&GoParser, "", &[DefKind::Const], src);
-        let scopes: Vec<&str> = results.iter().map(|r| r.scope.as_str()).collect();
-        assert_eq!(
-            results.len(),
-            4,
-            "expected exactly 4 constants, got {scopes:?}"
-        );
-    }
-
-    // --- Field extraction ---
-
-    #[test]
-    fn struct_field_extracted_as_field() {
-        let src = "package p\n\ntype Server struct { Host string; Port int }";
-        let results = extract_definitions(&GoParser, "Host", &[DefKind::Field], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-        assert_eq!(results[0].scope, "Server.Host");
-    }
-
-    #[test]
-    fn struct_multiple_fields() {
-        let src = "package p\n\ntype Point struct { X float64; Y float64 }";
-        let results = extract_definitions(&GoParser, "Y", &[DefKind::Field], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Field);
-        assert_eq!(results[0].scope, "Point.Y");
-    }
-
-    #[test]
-    fn field_kind_filter_excludes_struct() {
-        let src = "package p\n\ntype Foo struct { Bar int }";
-        let results = extract_definitions(&GoParser, "Bar", &[DefKind::Struct], src);
-        assert!(
-            results.is_empty(),
-            "field should not match -k struct, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn embedded_field_without_name_skipped() {
-        // Embedded fields in Go have no explicit field name (no field_identifier)
-        let src = "package p\n\ntype Embedded struct { Server }";
-        let results = extract_definitions(&GoParser, ".", &[DefKind::Field], src);
-        // Embedded fields should be skipped (no field_identifier name)
-        assert!(
-            results.is_empty(),
-            "embedded field without name should be skipped, got: {results:?}"
-        );
-    }
 }

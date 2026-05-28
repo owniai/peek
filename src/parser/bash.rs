@@ -5,19 +5,23 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "bash";
+pub(crate) const EXTENSIONS: &[&str] = &["sh", "bash", "bats"];
+pub(crate) const ALIASES: &[&str] = &["shell", "sh"];
+
 pub struct BashParser;
 
 impl LanguageParser for BashParser {
     fn language(&self) -> &'static str {
-        "bash"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".sh", ".bash", ".bats"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
-        &[DefKind::Function, DefKind::Const]
+        &[DefKind::Function, DefKind::Const, DefKind::Var]
     }
 
     impl_init_parser!(tree_sitter_bash::LANGUAGE, "Bash");
@@ -157,6 +161,58 @@ fn handle_const(
     }
 }
 
+/// Handle a variable_assignment node: extract as Var kind.
+/// Only extracts top-level variable assignments (not inside function bodies).
+fn handle_var(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !kinds.contains(&DefKind::Var) {
+        return;
+    }
+
+    // Only top-level variable assignments (not inside function bodies)
+    if !scope.is_empty() {
+        return;
+    }
+
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let name = name_ref.to_string();
+    let own_scope = build_scope(scope, "::", &name);
+    // Truncate signature to the = sign
+    let mut cursor = node.walk();
+    let eq_byte = node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "=")
+        .map(|c| c.start_byte())
+        .unwrap_or_else(|| node.end_byte());
+    let sig = flatten_bytes(node.start_byte(), eq_byte, source)
+        .unwrap_or_else(|| first_line_of_node(node, source));
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Var,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
 /// Recursively walk the AST, dispatching to type-specific handlers.
 fn collect_definitions(
     node: Node,
@@ -172,6 +228,9 @@ fn collect_definitions(
         }
         "declaration_command" => {
             handle_const(node, source, mode, kinds, results, scope);
+        }
+        "variable_assignment" => {
+            handle_var(node, source, mode, kinds, results, scope);
         }
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
@@ -191,159 +250,5 @@ fn recurse_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // === Edge case / handler tests ===
-
-    #[test]
-    fn test_no_extraction_of_local() {
-        let source = r#"
-function my_func {
-    local x=10
-}
-"#;
-        let defs = extract_definitions(&BashParser, "x", &[DefKind::Const], source);
-        assert!(
-            defs.is_empty(),
-            "local variables should not be treated as const"
-        );
-    }
-
-    #[test]
-    fn test_no_extraction_of_declare_without_r() {
-        let source = r#"
-declare NORMAL_VAR="mutable"
-"#;
-        let defs = extract_definitions(&BashParser, "NORMAL_VAR", &[DefKind::Const], source);
-        assert!(
-            defs.is_empty(),
-            "declare without -r should not be treated as const"
-        );
-    }
-
-    #[test]
-    fn test_kind_filter_only_functions() {
-        let source = r#"
-readonly MY_CONST=42
-function my_func {
-    echo "hi"
-}
-"#;
-        // Only request Function kind -- const should not appear
-        let defs = extract_definitions(&BashParser, "MY_CONST", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_empty_source() {
-        let source = "";
-        let defs = extract_definitions(&BashParser, "anything", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    // === Bug verification: declare -rx not recognized as const ===
-
-    /// Verify that `declare -rx` (readonly + export) is recognized as a const.
-    /// BUG: The parser only checks for exactly "-r" in the options, but `declare -rx`
-    /// produces a word node with text "-rx" in the AST. This means compound options
-    /// containing -r (e.g., -rx, -rg, -rxi) are silently ignored.
-    #[test]
-    fn test_declare_rx_recognized_as_const() {
-        let source = r#"
-declare -rx GLOBAL_API_KEY="secret123"
-"#;
-        let defs = extract_definitions(&BashParser, "GLOBAL_API_KEY", &[DefKind::Const], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "declare -rx should be recognized as const (readonly + export is still readonly)"
-        );
-        assert_eq!(defs[0].kind, DefKind::Const);
-        assert_eq!(defs[0].scope, "GLOBAL_API_KEY");
-    }
-
-    /// Verify that `declare -rg` (readonly + global) is recognized as a const.
-    #[test]
-    fn test_declare_rg_recognized_as_const() {
-        let source = r#"
-declare -rg GLOBAL_CONFIG="production"
-"#;
-        let defs = extract_definitions(&BashParser, "GLOBAL_CONFIG", &[DefKind::Const], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "declare -rg should be recognized as const (readonly + global is still readonly)"
-        );
-        assert_eq!(defs[0].kind, DefKind::Const);
-    }
-
-    /// Verify that `typeset -r` (synonym for declare -r) is recognized as a const.
-    #[test]
-    fn test_typeset_r_recognized_as_const() {
-        let source = r#"
-typeset -r TYPESET_CONST="typeset_value"
-"#;
-        let defs = extract_definitions(&BashParser, "TYPESET_CONST", &[DefKind::Const], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "typeset -r should be recognized as const (typeset is a synonym for declare)"
-        );
-        assert_eq!(defs[0].kind, DefKind::Const);
-        assert_eq!(defs[0].scope, "TYPESET_CONST");
-    }
-
-    /// Verify that `typeset` WITHOUT -r is NOT treated as const.
-    /// typeset is a synonym for declare, not readonly — only typeset -r is const.
-    #[test]
-    fn test_typeset_without_r_not_const() {
-        let source = r#"
-typeset MUTABLE_VAR="changeable"
-"#;
-        let defs = extract_definitions(&BashParser, "MUTABLE_VAR", &[DefKind::Const], source);
-        assert!(
-            defs.is_empty(),
-            "typeset without -r should not be treated as const"
-        );
-    }
-
-    /// Verify that `local -r` inside a function IS recognized as const.
-    /// local -r declares a local readonly variable — semantically a const in function scope.
-    #[test]
-    fn test_local_r_recognized_as_const() {
-        let source = r#"
-function my_func {
-    local -r LOCAL_CONST="fixed"
-}
-"#;
-        let defs = extract_definitions(&BashParser, "LOCAL_CONST", &[DefKind::Const], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "local -r should be recognized as const (readonly variable)"
-        );
-        assert_eq!(defs[0].kind, DefKind::Const);
-        assert_eq!(defs[0].scope, "my_func::LOCAL_CONST");
-    }
-
-    /// Verify that `local` WITHOUT -r is NOT treated as const.
-    #[test]
-    fn test_local_without_r_not_const() {
-        let source = r#"
-function my_func {
-    local mutable_local="changeable"
-}
-"#;
-        let defs = extract_definitions(&BashParser, "mutable_local", &[DefKind::Const], source);
-        assert!(
-            defs.is_empty(),
-            "local without -r should not be treated as const"
-        );
     }
 }

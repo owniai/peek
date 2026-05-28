@@ -5,15 +5,19 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "kotlin";
+pub(crate) const EXTENSIONS: &[&str] = &["kt", "kts"];
+pub(crate) const ALIASES: &[&str] = &["kt"];
+
 pub struct KotlinParser;
 
 impl LanguageParser for KotlinParser {
     fn language(&self) -> &'static str {
-        "kotlin"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".kt", ".kts"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
@@ -21,15 +25,23 @@ impl LanguageParser for KotlinParser {
             DefKind::Class,
             DefKind::Interface,
             DefKind::Enum,
+            DefKind::Annotation,
             DefKind::Function,
+            DefKind::FunctionDeclaration,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Constructor,
             DefKind::Object,
             DefKind::Alias,
             DefKind::Const,
             DefKind::Property,
+            DefKind::Var,
             DefKind::Package,
             DefKind::Variant,
+            DefKind::Operator,
+            DefKind::OperatorDeclaration,
+            DefKind::Getter,
+            DefKind::Setter,
         ]
     }
 
@@ -52,12 +64,13 @@ impl LanguageParser for KotlinParser {
     }
 }
 
-/// Classify a `class_declaration` node as Class, Interface, or Enum.
+/// Classify a `class_declaration` node as Class, Interface, Enum, or Annotation.
 ///
-/// Classification logic (based on experiments 2/5/8):
+/// Classification logic:
 /// - Check anonymous children for "interface" keyword -> Interface
+/// - Check modifiers -> class_modifier for "annotation" -> Annotation
 /// - Check modifiers -> class_modifier for "enum" -> Enum
-/// - Everything else -> Class (including data/sealed/annotation/abstract/open/inner)
+/// - Everything else -> Class (including data/sealed/abstract/open/inner/value)
 fn classify_class_declaration(node: Node, source: &str) -> DefKind {
     // Check for "interface" keyword among anonymous children
     let mut cursor = node.walk();
@@ -71,14 +84,16 @@ fn classify_class_declaration(node: Node, source: &str) -> DefKind {
         }
     }
 
-    // Check modifiers for "enum" class_modifier
+    // Check modifiers for class_modifier keywords (annotation, enum)
     if let Some(modifiers) = first_child_by_kind(node, "modifiers") {
         let mut mod_cursor = modifiers.walk();
         for mod_child in modifiers.children(&mut mod_cursor) {
             if mod_child.kind() == "class_modifier" {
                 if let Ok(text) = mod_child.utf8_text(source.as_bytes()) {
-                    if text == "enum" {
-                        return DefKind::Enum;
+                    match text {
+                        "annotation" => return DefKind::Annotation,
+                        "enum" => return DefKind::Enum,
+                        _ => {}
                     }
                 }
             }
@@ -86,6 +101,23 @@ fn classify_class_declaration(node: Node, source: &str) -> DefKind {
     }
 
     DefKind::Class
+}
+
+/// Check if a `function_declaration` has the `operator` function_modifier.
+fn is_operator_function(node: Node, source: &str) -> bool {
+    if let Some(modifiers) = first_child_by_kind(node, "modifiers") {
+        let mut cursor = modifiers.walk();
+        for child in modifiers.children(&mut cursor) {
+            if child.kind() == "function_modifier" {
+                if let Ok(text) = child.utf8_text(source.as_bytes()) {
+                    if text == "operator" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Handle a class_declaration node: extract the definition and recurse into body.
@@ -354,6 +386,65 @@ fn is_const_property(node: Node, source: &str) -> bool {
     false
 }
 
+/// Check if a property_declaration uses `val` (immutable) keyword.
+fn is_val_property(node: Node, _source: &str) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(|c| !c.is_named() && c.kind() == "val")
+}
+
+/// Handle a top-level property_declaration with configurable kind.
+fn handle_toplevel_var_as(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    kind: DefKind,
+) {
+    if !kinds.contains(&kind) {
+        return;
+    }
+
+    let var_decl = match first_child_by_kind(node, "variable_declaration") {
+        Some(vd) => vd,
+        None => return,
+    };
+    let name_node = match first_child_by_kind(var_decl, "identifier") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = name_ref.to_string();
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle a non-const top-level property_declaration as Var kind.
+fn handle_toplevel_var(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    handle_toplevel_var_as(node, source, mode, kinds, results, DefKind::Var);
+}
+
 /// Handle a non-const property_declaration in class body as Property kind.
 fn handle_body_property(
     node: Node,
@@ -389,6 +480,125 @@ fn handle_body_property(
         signature,
         scope: own_scope,
     });
+}
+
+/// Handle destructuring property_declaration (val (a, b) = expr / var (a, b) = expr).
+///
+/// Extracts each variable from multi_variable_declaration as an individual definition.
+/// Kind mapping: top-level val → Const, top-level var → Var, class body → Property.
+fn handle_destructuring(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let multi = match first_child_by_kind(node, "multi_variable_declaration") {
+        Some(m) => m,
+        None => return,
+    };
+
+    let kind = if scope.is_empty() {
+        if is_val_property(node, source) {
+            DefKind::Const
+        } else {
+            DefKind::Var
+        }
+    } else {
+        DefKind::Property
+    };
+
+    if !kinds.contains(&kind) {
+        return;
+    }
+
+    let sig = first_line_of_node(node, source);
+    let signature = normalize_signature(&sig);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    let mut cursor = multi.walk();
+    for child in multi.children(&mut cursor) {
+        if child.kind() != "variable_declaration" {
+            continue;
+        }
+        let name_node = match first_child_by_kind(child, "identifier") {
+            Some(n) => n,
+            None => continue,
+        };
+        let name_ref = node_text_ref(name_node, source);
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+        let own_scope = if scope.is_empty() {
+            name_ref.to_string()
+        } else {
+            build_scope(scope, ".", name_ref)
+        };
+
+        results.push(DefContent {
+            kind,
+            lines: [start, end],
+            signature: signature.clone(),
+            scope: own_scope,
+        });
+    }
+}
+
+/// Extract getter/setter from property_declaration child nodes.
+/// Kotlin getter/setter share the property name (like Dart, unlike C#).
+fn handle_property_accessors(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let has_getter = kinds.contains(&DefKind::Getter);
+    let has_setter = kinds.contains(&DefKind::Setter);
+    if !has_getter && !has_setter {
+        return;
+    }
+
+    let var_decl = match first_child_by_kind(node, "variable_declaration") {
+        Some(vd) => vd,
+        None => return,
+    };
+    let name_node = match first_child_by_kind(var_decl, "identifier") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = if scope.is_empty() {
+        name_ref.to_string()
+    } else {
+        build_scope(scope, ".", name_ref)
+    };
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let def_kind = match child.kind() {
+            "getter" if has_getter => DefKind::Getter,
+            "setter" if has_setter => DefKind::Setter,
+            _ => continue,
+        };
+
+        let start_row = child.start_position().row + 1;
+        let [start, end] = line_range(start_row, child);
+
+        results.push(DefContent {
+            kind: def_kind,
+            lines: [start, end],
+            signature: first_line_of_node(child, source),
+            scope: own_scope.clone(),
+        });
+    }
 }
 
 /// Extract primary_constructor from a class_declaration node.
@@ -560,7 +770,7 @@ fn handle_secondary_constructor(
 }
 
 /// Handle an enum_entry node (Kotlin enum variant).
-/// enum_entry has a "name" field returning a simple_identifier.
+/// enum_entry grammar has no field name for identifier, so we use first_child_by_kind.
 /// Scope uses "." separator: e.g., "Color.RED".
 fn handle_enum_entry(
     node: Node,
@@ -569,7 +779,7 @@ fn handle_enum_entry(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    let name_node = match node.child_by_field_name("name") {
+    let name_node = match first_child_by_kind(node, "identifier") {
         Some(n) => n,
         None => return,
     };
@@ -612,11 +822,20 @@ fn collect_definitions(
             handle_object(node, source, mode, kinds, results, scope);
         }
         "function_declaration" => {
-            // Scope-based: if inside a class/object body (!scope.is_empty()), emit Method
-            let def_kind = if scope.is_empty() {
+            let has_body = first_child_by_kind(node, "function_body").is_some();
+            let base_kind = if is_operator_function(node, source) {
+                DefKind::Operator
+            } else if scope.is_empty() {
                 DefKind::Function
             } else {
                 DefKind::Method
+            };
+            let def_kind = if has_body {
+                base_kind
+            } else {
+                base_kind
+                    .declaration_pair()
+                    .expect("callable kinds always have declaration pairs")
             };
             handle_function(node, source, mode, kinds, results, scope, def_kind);
             // Do not recurse into function body
@@ -628,10 +847,19 @@ fn collect_definitions(
             handle_typealias(node, source, mode, kinds, results, scope);
         }
         "property_declaration" => {
-            if is_const_property(node, source) {
-                handle_const(node, source, mode, kinds, results, scope);
-            } else if kinds.contains(&DefKind::Property) {
-                handle_body_property(node, source, mode, results, scope);
+            if first_child_by_kind(node, "multi_variable_declaration").is_some() {
+                handle_destructuring(node, source, mode, kinds, results, scope);
+            } else {
+                if is_const_property(node, source) {
+                    handle_const(node, source, mode, kinds, results, scope);
+                } else if scope.is_empty() && is_val_property(node, source) {
+                    handle_toplevel_var_as(node, source, mode, kinds, results, DefKind::Const);
+                } else if scope.is_empty() {
+                    handle_toplevel_var(node, source, mode, kinds, results);
+                } else if kinds.contains(&DefKind::Property) {
+                    handle_body_property(node, source, mode, results, scope);
+                }
+                handle_property_accessors(node, source, mode, kinds, results, scope);
             }
             // Do not recurse -- property initializers do not contain nested definitions
         }
@@ -657,6 +885,14 @@ fn collect_definitions(
             if kinds.contains(&DefKind::Variant) {
                 handle_enum_entry(node, source, mode, results, scope);
             }
+            // Recurse into class_body if present (enum entry can have its own class body)
+            if let Some(name_node) = first_child_by_kind(node, "identifier") {
+                let name = node_text_ref(name_node, source);
+                let own_scope = build_scope(scope, ".", name);
+                if let Some(body) = first_child_by_kind(node, "class_body") {
+                    recurse_children(body, source, mode, kinds, results, &own_scope);
+                }
+            }
         }
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
@@ -676,88 +912,5 @@ fn recurse_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // === Bug verification: unnamed companion object functions are lost ===
-
-    #[test]
-    fn test_function_in_unnamed_companion_object() {
-        let source = r#"
-class MyClass {
-    companion object {
-        fun create(): MyClass = MyClass()
-    }
-}
-"#;
-        let defs = extract_definitions(&KotlinParser, "create", &[DefKind::Method], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "should find method inside unnamed companion object, but got {} results",
-            defs.len()
-        );
-        assert_eq!(defs[0].kind, DefKind::Method);
-        assert!(defs[0].signature.contains("fun create"));
-    }
-
-    #[test]
-    fn test_const_in_unnamed_companion_object() {
-        let source = r#"
-class Config {
-    companion object {
-        const val TAG = "Config"
-    }
-}
-"#;
-        let defs = extract_definitions(&KotlinParser, "TAG", &[DefKind::Const], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "should find const inside unnamed companion object, but got {} results",
-            defs.len()
-        );
-        assert_eq!(defs[0].kind, DefKind::Const);
-        assert!(defs[0].signature.contains("TAG"));
-    }
-
-    #[test]
-    fn test_function_in_named_companion_object() {
-        let source = r#"
-class MyClass {
-    companion object Factory {
-        fun create(): MyClass = MyClass()
-    }
-}
-"#;
-        let defs = extract_definitions(&KotlinParser, "create", &[DefKind::Method], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "should find method inside named companion object"
-        );
-        assert_eq!(defs[0].scope, "MyClass.Factory.create");
-    }
-
-    #[test]
-    fn test_nested_class_in_unnamed_companion_object() {
-        let source = r#"
-class Outer {
-    companion object {
-        class Inner
-    }
-}
-"#;
-        let defs = extract_definitions(&KotlinParser, "Inner", &[DefKind::Class], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "should find nested class inside unnamed companion object"
-        );
     }
 }

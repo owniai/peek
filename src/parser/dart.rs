@@ -5,21 +5,26 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "dart";
+pub(crate) const EXTENSIONS: &[&str] = &["dart"];
+pub(crate) const ALIASES: &[&str] = &[];
+
 pub struct DartParser;
 
 impl LanguageParser for DartParser {
     fn language(&self) -> &'static str {
-        "dart"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".dart"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Constructor,
             DefKind::Getter,
             DefKind::Setter,
@@ -29,8 +34,12 @@ impl LanguageParser for DartParser {
             DefKind::Const,
             DefKind::Alias,
             DefKind::Mixin,
+            DefKind::Interface,
             DefKind::Extension,
+            DefKind::ExtensionType,
             DefKind::Field,
+            DefKind::Module,
+            DefKind::Var,
             DefKind::Variant,
         ]
     }
@@ -50,6 +59,9 @@ fn collect_definitions(
     scope: &str,
 ) {
     match node.kind() {
+        "library_name" => {
+            handle_library(node, source, mode, kinds, results);
+        }
         "class_declaration" => {
             handle_class(node, source, mode, kinds, results, scope);
         }
@@ -59,8 +71,11 @@ fn collect_definitions(
         "mixin_declaration" => {
             handle_mixin(node, source, mode, kinds, results, scope);
         }
-        "extension_declaration" | "extension_type_declaration" => {
+        "extension_declaration" => {
             handle_extension(node, source, mode, kinds, results, scope);
+        }
+        "extension_type_declaration" => {
+            handle_extension_type(node, source, mode, kinds, results, scope);
         }
         "type_alias" => {
             handle_type_alias(node, source, mode, kinds, results, scope);
@@ -89,12 +104,38 @@ fn collect_definitions(
         "declaration" => {
             handle_declaration(node, source, mode, kinds, results, scope);
         }
+        "initialized_identifier_list" if scope.is_empty() => {
+            // tree-sitter-dart 0.1.0 bug: `library my_lib;` followed by other declarations
+            // is misparsed as type_identifier "library" + initialized_identifier_list.
+            // Detect this pattern and treat as library directive (Module) instead of Var.
+            if kinds.contains(&DefKind::Module) && is_library_misparse(node, source) {
+                handle_library_misparse(node, source, mode, kinds, results);
+            } else if has_final_keyword(node) {
+                if kinds.contains(&DefKind::Const) {
+                    extract_var_names_as(node, source, mode, results, DefKind::Const);
+                }
+            } else if kinds.contains(&DefKind::Var) {
+                extract_var_names(node, source, mode, results);
+            }
+        }
         "class_member" | "method_signature" => {
             recurse_children(node, source, mode, kinds, results, scope);
         }
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
         }
+    }
+}
+
+/// For top-level external declarations where `external` and the signature node are siblings,
+/// prepend "external " to the signature so it isn't lost.
+/// Uses prev_sibling (not prev_named_sibling) because tree-sitter-dart produces
+/// top-level `external` as an anonymous (unnamed) token.
+fn prepend_external(node: Node, sig: &str) -> String {
+    if node.prev_sibling().is_some_and(|s| s.kind() == "external") {
+        format!("external {}", sig)
+    } else {
+        sig.to_string()
     }
 }
 
@@ -111,6 +152,7 @@ fn handle_class(
 ) {
     let own_scope = build_scope_from_node(node, source, scope, ".");
     let has_mixin = has_child_by_kind(node, "mixin");
+    let has_interface = has_child_by_kind(node, "interface");
 
     if let Some(name_node) = node.child_by_field_name("name") {
         let name_ref = node_text_ref(name_node, source);
@@ -130,6 +172,14 @@ fn handle_class(
             if has_mixin && kinds.contains(&DefKind::Mixin) {
                 results.push(DefContent {
                     kind: DefKind::Mixin,
+                    lines: [start, end],
+                    signature: signature.clone(),
+                    scope: own_scope.clone(),
+                });
+            }
+            if has_interface && kinds.contains(&DefKind::Interface) {
+                results.push(DefContent {
+                    kind: DefKind::Interface,
                     lines: [start, end],
                     signature,
                     scope: own_scope.clone(),
@@ -253,6 +303,111 @@ fn handle_extension(
     }
 }
 
+/// Handle extension_type_declaration (Dart 3 extension types).
+/// Extension types are nominal type declarations (zero-overhead type wrappers),
+/// semantically distinct from behavior extensions.
+fn handle_extension_type(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let own_scope = build_scope_from_node(node, source, scope, ".");
+    if kinds.contains(&DefKind::ExtensionType) {
+        if let Some(name_node) = node.child_by_field_name("name") {
+            let name_ref = node_text_ref(name_node, source);
+            if mode.matches_ident(name_ref) {
+                let signature = extract_signature_to_body(node, source);
+                let start_row = node.start_position().row + 1;
+                let [start, end] = line_range(start_row, node);
+
+                results.push(DefContent {
+                    kind: DefKind::ExtensionType,
+                    lines: [start, end],
+                    signature,
+                    scope: own_scope.clone(),
+                });
+            }
+        }
+    }
+
+    // Recurse into body for methods, constructors, etc.
+    let body = node.child_by_field_name("body");
+    if let Some(body) = body {
+        recurse_children(body, source, mode, kinds, results, &own_scope);
+    }
+}
+
+/// Handle library_name: extract library directive as Module.
+/// Correct AST: (library_name (dotted_identifier_list (identifier)))
+fn handle_library(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    if !kinds.contains(&DefKind::Module) {
+        return;
+    }
+    if let Some(dil) = first_child_by_kind(node, "dotted_identifier_list") {
+        let name = node_text_ref(dil, source);
+        if mode.matches_ident(name) {
+            let signature = first_line_of_node(node, source);
+            let signature = normalize_signature(&signature);
+            let start_row = node.start_position().row + 1;
+            let [start, end] = line_range(start_row, node);
+            results.push(DefContent {
+                kind: DefKind::Module,
+                lines: [start, end],
+                signature,
+                scope: name.to_string(),
+            });
+        }
+    }
+}
+
+/// Detect tree-sitter-dart 0.1.0 misparse: `library my_lib;` followed by other
+/// declarations produces type_identifier "library" + initialized_identifier_list.
+fn is_library_misparse(node: Node, source: &str) -> bool {
+    if let Some(prev) = node.prev_named_sibling() {
+        if prev.kind() == "type_identifier" {
+            return node_text_ref(prev, source) == "library";
+        }
+    }
+    false
+}
+
+/// Handle the misparse case: extract library name from initialized_identifier_list
+/// when preceded by type_identifier "library".
+fn handle_library_misparse(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    _kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    if let Some(name_node) = first_child_by_kind(node, "initialized_identifier") {
+        if let Some(name) = name_node.child_by_field_name("name") {
+            let name_ref = node_text_ref(name, source);
+            if mode.matches_ident(name_ref) {
+                // Use the type_identifier + initialized_identifier_list span for line range
+                let start_row = node.start_position().row + 1;
+                let [start, end] = line_range(start_row, node);
+                let signature = format!("library {};", name_ref);
+                results.push(DefContent {
+                    kind: DefKind::Module,
+                    lines: [start, end],
+                    signature,
+                    scope: name_ref.to_string(),
+                });
+            }
+        }
+    }
+}
+
 /// Handle type_alias: extract typedef definition.
 fn handle_type_alias(
     node: Node,
@@ -314,7 +469,7 @@ fn handle_function_sig(
         return;
     }
 
-    let signature = extract_signature_to_body(node, source);
+    let signature = prepend_external(node, &extract_signature_to_body(node, source));
     let start_row = (node.start_position().row + 1) as u32;
     let end_row = dart_end_row(node);
 
@@ -348,7 +503,7 @@ fn handle_operator_sig(
 
     let own_scope = build_scope(scope, ".", &operator_name);
     let signature = first_line_of_node(node, source);
-    let signature = normalize_signature(&signature);
+    let signature = normalize_signature(&prepend_external(node, &signature));
     let start_row = (node.start_position().row + 1) as u32;
     let end_row = dart_end_row(node);
 
@@ -422,12 +577,17 @@ fn handle_factory_constructor(
 
 /// Extract operator name from operator_signature node.
 /// Finds the *_operator child (e.g., binary_operator "+") and returns "operator+".
+/// Also handles anonymous operator tokens: []=[]=[]=, ~.
 fn extract_operator_name(node: Node, source: &str) -> String {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.is_named() && child.kind().ends_with("_operator") {
-            let symbol = node_text_ref(child, source);
-            return format!("operator{}", symbol);
+        if child.is_named() {
+            if child.kind().ends_with("_operator") {
+                let symbol = node_text_ref(child, source);
+                return format!("operator{}", symbol);
+            }
+        } else if matches!(child.kind(), "[]" | "[]=" | "~") {
+            return format!("operator{}", child.kind());
         }
     }
     "operator".to_string()
@@ -463,7 +623,7 @@ fn handle_accessor(
 
     let own_scope = build_scope_from_node(node, source, scope, ".");
     let signature = first_line_of_node(node, source);
-    let signature = normalize_signature(&signature);
+    let signature = normalize_signature(&prepend_external(node, &signature));
     let start_row = (node.start_position().row + 1) as u32;
     let end_row = dart_end_row(node);
 
@@ -555,19 +715,30 @@ fn handle_declaration(
         return;
     }
 
-    // Check for field (initialized_identifier_list inside declaration, not const)
-    if kinds.contains(&DefKind::Field) {
-        if let Some(id_list) = children
-            .iter()
-            .find(|c| c.kind() == "initialized_identifier_list")
-        {
+    // Check for field/var (initialized_identifier_list inside declaration, not const)
+    if let Some(id_list) = children
+        .iter()
+        .find(|c| c.kind() == "initialized_identifier_list")
+    {
+        if scope.is_empty() {
+            // Top-level variable → Var kind
+            if kinds.contains(&DefKind::Var) {
+                extract_var_names(*id_list, source, mode, results);
+            }
+        } else if kinds.contains(&DefKind::Field) {
             extract_field_names(*id_list, source, mode, results, scope);
         }
     }
 
     // Check for method signatures inside declaration (e.g., constructor)
     // For constructor_signature, we treat it as Constructor
-    let callable_kinds = [DefKind::Constructor, DefKind::Method];
+    let callable_kinds = [
+        DefKind::Constructor,
+        DefKind::Method,
+        DefKind::MethodDeclaration,
+        DefKind::Getter,
+        DefKind::Setter,
+    ];
     let any_callable = callable_kinds.iter().any(|k| kinds.contains(k));
     if any_callable {
         for child in children.iter() {
@@ -609,22 +780,57 @@ fn handle_declaration(
                         });
                     }
                 }
-                "function_signature" if kinds.contains(&DefKind::Method) => {
-                    // Abstract method inside class (declaration > function_signature) -> Method
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        let name_ref = node_text_ref(name_node, source);
-                        if mode.matches_ident(name_ref) {
-                            let own_scope = build_scope(scope, ".", name_ref);
-                            let signature = extract_signature_to_body(node, source);
-                            let start_row = (node.start_position().row + 1) as u32;
-                            let end_row = dart_end_row(node);
+                "function_signature" => {
+                    // function_signature inside declaration:
+                    // concrete method has sibling function_body → Method
+                    // abstract method has no function_body → MethodDeclaration
+                    let has_body = children.iter().any(|c| c.kind() == "function_body");
+                    let def_kind = if has_body {
+                        DefKind::Method
+                    } else {
+                        DefKind::MethodDeclaration
+                    };
+                    if kinds.contains(&def_kind) {
+                        if let Some(name_node) = child.child_by_field_name("name") {
+                            let name_ref = node_text_ref(name_node, source);
+                            if mode.matches_ident(name_ref) {
+                                let own_scope = build_scope(scope, ".", name_ref);
+                                let signature = extract_signature_to_body(node, source);
+                                let start_row = (node.start_position().row + 1) as u32;
+                                let end_row = dart_end_row(node);
 
-                            results.push(DefContent {
-                                kind: DefKind::Method,
-                                lines: [start_row, end_row],
-                                signature,
-                                scope: own_scope,
-                            });
+                                results.push(DefContent {
+                                    kind: def_kind,
+                                    lines: [start_row, end_row],
+                                    signature,
+                                    scope: own_scope,
+                                });
+                            }
+                        }
+                    }
+                }
+                "getter_signature" | "setter_signature" => {
+                    let def_kind = if child.kind() == "getter_signature" {
+                        DefKind::Getter
+                    } else {
+                        DefKind::Setter
+                    };
+                    if kinds.contains(&def_kind) {
+                        if let Some(name_node) = child.child_by_field_name("name") {
+                            let name_ref = node_text_ref(name_node, source);
+                            if mode.matches_ident(name_ref) {
+                                let own_scope = build_scope(scope, ".", name_ref);
+                                let signature = extract_signature_to_body(node, source);
+                                let start_row = (node.start_position().row + 1) as u32;
+                                let end_row = dart_end_row(node);
+
+                                results.push(DefContent {
+                                    kind: def_kind,
+                                    lines: [start_row, end_row],
+                                    signature,
+                                    scope: own_scope,
+                                });
+                            }
                         }
                     }
                 }
@@ -699,6 +905,59 @@ fn extract_const_names(
     }
 }
 
+/// Check if the parent of `node` contains a `final` unnamed token (for `late final` detection).
+fn has_final_keyword(node: Node) -> bool {
+    let parent = match node.parent() {
+        Some(p) => p,
+        None => return false,
+    };
+    let mut cursor = parent.walk();
+    parent
+        .children(&mut cursor)
+        .any(|c| !c.is_named() && c.kind() == "final")
+}
+
+/// Extract variable names from initialized_identifier_list with a configurable kind.
+fn extract_var_names_as(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    kind: DefKind,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "initialized_identifier" {
+            continue;
+        }
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) => n,
+            None => continue,
+        };
+        let name_ref = node_text_ref(name_node, source);
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+
+        let sig = first_line_of_node(child, source);
+        let signature = normalize_signature(&sig);
+        let start_row = (child.start_position().row + 1) as u32;
+        let end_row = dart_end_row(child);
+
+        results.push(DefContent {
+            kind,
+            lines: [start_row, end_row],
+            signature,
+            scope: name_ref.to_string(),
+        });
+    }
+}
+
+/// Extract variable names from initialized_identifier_list (Dart top-level variables).
+fn extract_var_names(node: Node, source: &str, mode: &MatchMode, results: &mut Vec<DefContent>) {
+    extract_var_names_as(node, source, mode, results, DefKind::Var);
+}
+
 /// Extract field names from initialized_identifier_list (Dart class fields).
 fn extract_field_names(
     node: Node,
@@ -748,402 +1007,5 @@ fn recurse_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // --- Edge case / handler tests ---
-
-    #[test]
-    fn test_unnamed_extension_not_extracted() {
-        let source = r#"
-extension on String {
-  String trimmed() => trim();
-}
-"#;
-        // Unnamed extension has no "name" field, should not be extracted
-        let defs = extract_definitions(&DartParser, "String", &[DefKind::Extension], source);
-        // "String" is the `on` type, not the extension name
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_kind_filter_excludes_unrelated() {
-        let source = r#"
-class MyClass {
-  void myMethod() {}
-}
-"#;
-        let defs = extract_definitions(&DartParser, "MyClass", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn test_empty_source() {
-        let source = "";
-        let defs = extract_definitions(&DartParser, "anything", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    // --- Bug verification tests ---
-
-    #[test]
-    fn test_mixin_class_found_via_both_class_and_mixin_kind() {
-        // Dart 3 "mixin class" is both a class and a mixin semantically.
-        // tree-sitter-dart parses it as class_declaration with a "mixin" named child.
-        // Both -k class and -k mixin should find it.
-        let source = r#"
-mixin class Draggable {
-  void drag() {}
-}
-"#;
-        // Searching as Class kind — should find it
-        let class_defs = extract_definitions(&DartParser, "Draggable", &[DefKind::Class], source);
-        assert_eq!(
-            class_defs.len(),
-            1,
-            "mixin class should be found via Class kind"
-        );
-        assert_eq!(class_defs[0].kind, DefKind::Class);
-
-        // Searching as Mixin kind — should also find it
-        let mixin_defs = extract_definitions(&DartParser, "Draggable", &[DefKind::Mixin], source);
-        assert_eq!(
-            mixin_defs.len(),
-            1,
-            "mixin class should be found via Mixin kind"
-        );
-        assert_eq!(mixin_defs[0].kind, DefKind::Mixin);
-
-        // Both results share the same location
-        assert_eq!(class_defs[0].lines, mixin_defs[0].lines);
-    }
-
-    #[test]
-    fn test_plain_class_not_found_via_mixin_kind() {
-        // A plain class (without mixin modifier) should NOT be found via Mixin kind
-        let source = r#"
-class PlainClass {
-  void method() {}
-}
-"#;
-        let defs = extract_definitions(&DartParser, "PlainClass", &[DefKind::Mixin], source);
-        assert!(
-            defs.is_empty(),
-            "plain class should not be found via Mixin kind"
-        );
-    }
-
-    #[test]
-    fn test_binary_operator_found() {
-        let source = r#"
-class Vector {
-  final int x, y;
-  Vector(this.x, this.y);
-  Vector operator +(Vector other) => Vector(x + other.x, y + other.y);
-}
-"#;
-        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Operator], source);
-        assert_eq!(defs.len(), 1, "operator+ should be extracted");
-        assert_eq!(defs[0].kind, DefKind::Operator);
-        assert_eq!(defs[0].scope, "Vector.operator+");
-        assert!(defs[0].signature.contains("operator"));
-    }
-
-    #[test]
-    fn test_comparison_operator_found() {
-        let source = r#"
-class Money {
-  final int amount;
-  Money(this.amount);
-  bool operator ==(Object other) => other is Money && amount == other.amount;
-}
-"#;
-        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Operator], source);
-        assert_eq!(defs.len(), 1, "operator== should be extracted");
-        assert_eq!(defs[0].scope, "Money.operator==");
-    }
-
-    #[test]
-    fn test_operator_kind_filtered_out() {
-        let source = r#"
-class Vector {
-  Vector operator +(Vector other) => Vector(0, 0);
-}
-"#;
-        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Class], source);
-        assert!(
-            defs.is_empty(),
-            "operator should not be found when kind is Class"
-        );
-    }
-
-    #[test]
-    fn test_named_constructor_found_by_name() {
-        // In Dart, MyClass.named(int x) is a named constructor.
-        // tree-sitter-dart represents it as constructor_signature with TWO identifier children:
-        //   identifier "MyClass" (class name) and identifier "named" (constructor name).
-        let source = r#"
-class Point {
-  final int x, y;
-  Point(this.x, this.y);
-  Point.origin() : x = 0, y = 0;
-}
-"#;
-        // Search for named constructor "origin" — should find it
-        let defs = extract_definitions(&DartParser, "origin", &[DefKind::Constructor], source);
-        assert_eq!(defs.len(), 1, "named constructor 'origin' should be found");
-        assert_eq!(defs[0].scope, "Point.origin");
-        assert!(defs[0].signature.contains("origin"));
-
-        // Default constructor should still work — search by class name "Point"
-        let default_defs =
-            extract_definitions(&DartParser, "Point", &[DefKind::Constructor], source);
-        // Both constructors match: default (name=Point) and named (class=Point for scope)
-        // The default constructor matches on "Point" directly
-        assert!(
-            !default_defs.is_empty(),
-            "default constructor should be found via class name"
-        );
-    }
-
-    #[test]
-    fn test_abstract_method_not_found_in_class() {
-        let source = r#"
-abstract class Shape {
-  double area();
-  double perimeter();
-  String describe() => "Shape";
-}
-"#;
-        // "describe" is a concrete method (has body) - should be found
-        let concrete_defs =
-            extract_definitions(&DartParser, "describe", &[DefKind::Method], source);
-        assert_eq!(concrete_defs.len(), 1, "concrete method should be found");
-        assert_eq!(concrete_defs[0].scope, "Shape.describe");
-
-        // "area" is an abstract method (no body) - should be found via function_signature
-        let abstract_defs = extract_definitions(&DartParser, "area", &[DefKind::Method], source);
-        assert_eq!(
-            abstract_defs.len(),
-            1,
-            "abstract method 'area' should be extracted"
-        );
-        assert_eq!(abstract_defs[0].scope, "Shape.area");
-
-        // "perimeter" is also abstract - should be found
-        let perimeter_defs =
-            extract_definitions(&DartParser, "perimeter", &[DefKind::Method], source);
-        assert_eq!(
-            perimeter_defs.len(),
-            1,
-            "abstract method 'perimeter' should be extracted"
-        );
-        assert_eq!(perimeter_defs[0].scope, "Shape.perimeter");
-    }
-
-    #[test]
-    fn test_abstract_vs_concrete_method_extraction() {
-        let source = r#"
-abstract class Repository {
-  Future<Data> findById(int id);
-  void delete(int id);
-  void log(String msg) {}
-}
-"#;
-        // Concrete method "log" (has function body) - should be found
-        let log_defs = extract_definitions(&DartParser, "log", &[DefKind::Method], source);
-        assert_eq!(log_defs.len(), 1, "concrete method 'log' should be found");
-        assert_eq!(log_defs[0].scope, "Repository.log");
-
-        // Abstract method "findById" (no body, semicolon only) - should be found
-        let find_defs = extract_definitions(&DartParser, "findById", &[DefKind::Method], source);
-        assert_eq!(
-            find_defs.len(),
-            1,
-            "abstract method 'findById' should be extracted"
-        );
-        assert_eq!(find_defs[0].scope, "Repository.findById");
-
-        // Abstract method "delete" (no body) - should be found
-        let delete_defs = extract_definitions(&DartParser, "delete", &[DefKind::Method], source);
-        assert_eq!(
-            delete_defs.len(),
-            1,
-            "abstract method 'delete' should be extracted"
-        );
-        assert_eq!(delete_defs[0].scope, "Repository.delete");
-    }
-
-    // --- Sub-kind classification tests ---
-
-    #[test]
-    fn test_top_level_function_is_function_kind() {
-        let source = "void globalHelper(String msg) {}";
-        let defs = extract_definitions(&DartParser, "globalHelper", &[DefKind::Function], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Function);
-    }
-
-    #[test]
-    fn test_class_method_is_method_kind() {
-        let source = "class Foo { void bar() {} }";
-        let defs = extract_definitions(&DartParser, "bar", &[DefKind::Method], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Method);
-        assert_eq!(defs[0].scope, "Foo.bar");
-    }
-
-    #[test]
-    fn test_constructor_is_constructor_kind() {
-        let source = "class Point { final int x; Point(this.x); }";
-        let defs = extract_definitions(&DartParser, "Point", &[DefKind::Constructor], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Constructor);
-        assert_eq!(defs[0].scope, "Point.Point");
-    }
-
-    #[test]
-    fn test_named_constructor_is_constructor_kind() {
-        let source = "class Point { Point.origin() : this(0); }";
-        let defs = extract_definitions(&DartParser, "origin", &[DefKind::Constructor], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Constructor);
-        assert_eq!(defs[0].scope, "Point.origin");
-    }
-
-    #[test]
-    fn test_factory_constructor_is_constructor_kind() {
-        let source = "class Foo { factory Foo.admin() => Foo(); }";
-        let defs = extract_definitions(&DartParser, "admin", &[DefKind::Constructor], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Constructor);
-        assert_eq!(defs[0].scope, "Foo.admin");
-    }
-
-    #[test]
-    fn test_getter_is_getter_kind() {
-        let source = "class Foo { String get name => 'foo'; }";
-        let defs = extract_definitions(&DartParser, "name", &[DefKind::Getter], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Getter);
-        assert_eq!(defs[0].scope, "Foo.name");
-    }
-
-    #[test]
-    fn test_setter_is_setter_kind() {
-        let source = "class Foo { set name(String v) {} }";
-        let defs = extract_definitions(&DartParser, "name", &[DefKind::Setter], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Setter);
-        assert_eq!(defs[0].scope, "Foo.name");
-    }
-
-    #[test]
-    fn test_operator_is_operator_kind() {
-        let source = "class Vector { Vector operator +(Vector other) => this; }";
-        let defs = extract_definitions(&DartParser, "operator", &[DefKind::Operator], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Operator);
-        assert_eq!(defs[0].scope, "Vector.operator+");
-    }
-
-    #[test]
-    fn test_function_kind_excludes_class_method() {
-        let source = "class Foo { void bar() {} }";
-        let defs = extract_definitions(&DartParser, "bar", &[DefKind::Function], source);
-        assert!(
-            defs.is_empty(),
-            "class method should not match Function kind"
-        );
-    }
-
-    #[test]
-    fn test_method_kind_excludes_top_level_function() {
-        let source = "void globalHelper() {}";
-        let defs = extract_definitions(&DartParser, "globalHelper", &[DefKind::Method], source);
-        assert!(
-            defs.is_empty(),
-            "top-level function should not match Method kind"
-        );
-    }
-
-    #[test]
-    fn test_enum_constant_extracted_as_variant() {
-        let source = r#"
-enum Color {
-  red,
-  green,
-  blue
-}
-"#;
-        let defs = extract_definitions(&DartParser, "red", &[DefKind::Variant], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "enum constant 'red' should be found as Variant"
-        );
-        assert_eq!(defs[0].kind, DefKind::Variant);
-        assert_eq!(defs[0].scope, "Color.red");
-    }
-
-    #[test]
-    fn test_enum_constant_not_extracted_as_const() {
-        let source = r#"
-enum Color {
-  red,
-  green,
-  blue
-}
-"#;
-        let defs = extract_definitions(&DartParser, "red", &[DefKind::Const], source);
-        assert!(defs.is_empty(), "enum constant should not match Const kind");
-    }
-
-    #[test]
-    fn test_enum_constant_with_constructor_args() {
-        let source = r#"
-enum Planet {
-  earth(6371),
-  mars(3390);
-
-  final int radius;
-  const Planet(this.radius);
-}
-"#;
-        let defs = extract_definitions(&DartParser, "earth", &[DefKind::Variant], source);
-        assert_eq!(
-            defs.len(),
-            1,
-            "enum constant 'earth' with args should be found"
-        );
-        assert_eq!(defs[0].kind, DefKind::Variant);
-        assert_eq!(defs[0].scope, "Planet.earth");
-
-        let mars_defs = extract_definitions(&DartParser, "mars", &[DefKind::Variant], source);
-        assert_eq!(mars_defs.len(), 1, "enum constant 'mars' should be found");
-        assert_eq!(mars_defs[0].scope, "Planet.mars");
-    }
-
-    #[test]
-    fn test_extension_method_is_method_kind() {
-        let source = "extension StringExt on String { String rep() => this; }";
-        let defs = extract_definitions(&DartParser, "rep", &[DefKind::Method], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Method);
-        assert_eq!(defs[0].scope, "StringExt.rep");
-    }
-
-    #[test]
-    fn test_mixin_method_is_method_kind() {
-        let source = "mixin Loggable { void log() {} }";
-        let defs = extract_definitions(&DartParser, "log", &[DefKind::Method], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Method);
-        assert_eq!(defs[0].scope, "Loggable.log");
     }
 }

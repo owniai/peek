@@ -1,0 +1,49 @@
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "top_func", "signature": "function top_func(x: string): string"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "local_validate", "signature": "local function local_validate(): boolean"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "math_utils.square", "signature": "function math_utils.square(x: number): number"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "method", "scope": "math_utils.cube", "signature": "function math_utils:cube(x: number): number"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "getter", "scope": "Vector.__index", "signature": "function Vector.__index(t, key)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "setter", "scope": "Vector.__newindex", "signature": "function Vector.__newindex(t, key, val)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "operator", "scope": "Vector.__add", "signature": "function Vector.__add(a, b)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "operator", "scope": "Vector.__call", "signature": "function Vector.__call(t, ...)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "destructor", "scope": "Vector.__gc", "signature": "function Vector.__gc(t)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "const", "scope": "MAX_RETRIES", "signature": "local MAX_RETRIES <const> = 3"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "var", "scope": "config_path", "signature": "local config_path = \"/etc/app.conf\""}
+{"path": "tests/fixtures/luau/core.luau", "kind": "var", "scope": "port", "signature": "port = 8080"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "var", "scope": "defaults", "signature": "local defaults = {"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "field", "scope": "name", "signature": "name = \"app\""}
+{"path": "tests/fixtures/luau/core.luau", "kind": "field", "scope": "timeout", "signature": "timeout = 30"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "var", "scope": "handlers", "signature": "local handlers = {"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "method", "scope": "process", "signature": "process = function(data)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "field", "scope": "count", "signature": "count = 42"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "alias", "scope": "Point", "signature": "type Point = { x: number, y: number }"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "alias", "scope": "Config", "signature": "export type Config = { host: string, port: number }"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "identity", "signature": "function identity<T>(value: T): T"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "app.models.create_user", "signature": "function app.models.create_user(name: string)"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "field", "scope": "app.models.create_user.name", "signature": "name = name"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "outer_func", "signature": "function outer_func()"}
+{"path": "tests/fixtures/luau/core.luau", "kind": "function", "scope": "outer_func.inner_func", "signature": "local function inner_func()"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "var", "scope": "mt", "signature": "local mt = {"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "operator", "scope": "__add", "signature": "__add = function(a, b) return a + b end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "getter", "scope": "__index", "signature": "__index = function(t, k) return rawget(t, k) end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "setter", "scope": "__newindex", "signature": "__newindex = function(t, k, v) rawset(t, k, v) end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "destructor", "scope": "__gc", "signature": "__gc = function(t) print(\"gc\") end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "operator", "scope": "__tostring", "signature": "__tostring = function(t) return tostring(t) end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "operator", "scope": "__call", "signature": "__call = function(t, ...) return t end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "method", "scope": "helper", "signature": "helper = function() return 1 end"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "function", "scope": "generate_id", "signature": "local generate_id = function()"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "function", "scope": "global_handler", "signature": "global_handler = function(event)"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "var", "scope": "config", "signature": "local config = {"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "field", "scope": "db.host", "signature": "host = \"localhost\""}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "field", "scope": "db.port", "signature": "port = 5432"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "field", "scope": "db", "signature": "db = {"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "field", "scope": "server.name", "signature": "name = \"api\""}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "field", "scope": "server", "signature": "server = {"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "alias", "scope": "Result", "signature": "type Result<T> = { ok: boolean, value: T }"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "alias", "scope": "Predicate", "signature": "export type Predicate<T> = (T) -> boolean"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "function", "scope": "greet", "signature": "function greet(): string"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "function", "scope": "calculate", "signature": "function calculate(a: number, b: number): number"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "var", "scope": "items", "signature": "local items = {"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "field", "scope": "key", "signature": "key = \"value\""}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "function", "scope": "setup", "signature": "function setup()"}
+{"path": "tests/fixtures/luau/edge.luau", "kind": "function", "scope": "setup.teardown", "signature": "local function teardown()"}

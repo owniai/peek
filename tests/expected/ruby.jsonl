@@ -1,0 +1,59 @@
+{"path": "tests/fixtures/ruby/core.rb", "kind": "var", "scope": "config_path", "signature": "config_path"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "const", "scope": "APP_VERSION", "signature": "APP_VERSION"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "global_helper", "signature": "def global_helper(x, y)"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "configure", "signature": "def self.configure(&block)"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "module", "scope": "MyApp", "signature": "module MyApp"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "class", "scope": "MyApp::User", "signature": "class User # ── Getter ──"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "property", "scope": "MyApp::User::name", "signature": "attr_reader :name"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "property", "scope": "MyApp::User::age", "signature": "attr_writer :age"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "property", "scope": "MyApp::User::address", "signature": "attr_accessor :address"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "constructor", "scope": "MyApp::User::initialize", "signature": "def initialize(name)"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "MyApp::User::display_name", "signature": "def display_name"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "alias", "scope": "MyApp::User::full_name", "signature": "alias full_name display_name"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "MyApp::User::find", "signature": "def self.find(email) end"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "const", "scope": "MyApp::User::DEFAULT_ROLE", "signature": "DEFAULT_ROLE"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "module", "scope": "Utilities", "signature": "module Utilities"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "Utilities::format_date", "signature": "def self.format_date(date)"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "Utilities::parse_json", "signature": "def self.parse_json(str) end"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "class", "scope": "ApplicationError", "signature": "class ApplicationError < StandardError"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "constructor", "scope": "ApplicationError::initialize", "signature": "def initialize(message = \"An error occurred\")"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "const", "scope": "ApplicationError::DEFAULT_CODE", "signature": "DEFAULT_CODE"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "class", "scope": "Container", "signature": "class Container"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "class", "scope": "Container::Item", "signature": "class Item"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "constructor", "scope": "Container::Item::initialize", "signature": "def initialize(value)"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "method", "scope": "Container::Item::validate", "signature": "def validate"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "const", "scope": "Container::MAX_ITEMS", "signature": "MAX_ITEMS"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "class", "scope": "Vec2d", "signature": "class Vec2d"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "operator", "scope": "Vec2d::+", "signature": "def +(other) end"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "operator", "scope": "Vec2d::==", "signature": "def ==(other) end"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "operator", "scope": "Vec2d::[]", "signature": "def [](index) end"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "struct", "scope": "Point", "signature": "Point = Struct.new(:x, :y)"}
+{"path": "tests/fixtures/ruby/core.rb", "kind": "struct", "scope": "Coord", "signature": "Coord = Data.define(:lat, :lng)"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "var", "scope": "fallback_path", "signature": "fallback_path"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "const", "scope": "DEFAULT_TIMEOUT", "signature": "DEFAULT_TIMEOUT"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "const", "scope": "CACHED_VALUE", "signature": "CACHED_VALUE"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "const", "scope": "TOTAL", "signature": "TOTAL"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "const", "scope": "DEBUG_MODE", "signature": "DEBUG_MODE"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "var", "scope": "timeout_seconds", "signature": "timeout_seconds"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "class", "scope": "AppError", "signature": "class AppError < StandardError"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "const", "scope": "AppError::DEFAULT_CODE", "signature": "DEFAULT_CODE"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "class", "scope": "Container", "signature": "class Container"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "helper", "signature": "def helper"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "factory", "signature": "def factory"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "module", "scope": "Outer", "signature": "module Outer"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "module", "scope": "Outer::Inner", "signature": "module Inner"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "class", "scope": "Outer::Inner::Deep", "signature": "class Deep"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "Outer::Inner::Deep::deep_method", "signature": "def deep_method end"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "class", "scope": "Vector", "signature": "class Vector"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "operator", "scope": "Vector::==", "signature": "def ==(other)"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "class", "scope": "Config", "signature": "class Config"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "alias", "scope": "Config::current", "signature": "alias current default_config"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "alias", "scope": "Config::alternate", "signature": "alias_method :alternate, :current"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "module", "scope": "Extensions", "signature": "module Extensions"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "Extensions::shout", "signature": "def shout"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "helper", "signature": "def helper end"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "struct", "scope": "Point3D", "signature": "Point3D = Struct.new(:x, :y, :z) do"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "Point3D::to_s", "signature": "def to_s"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "class", "scope": "DynamicMethods", "signature": "class DynamicMethods"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "DynamicMethods::greet", "signature": "define_method(:greet) { |name| \"Hello #{name}\" }"}
+{"path": "tests/fixtures/ruby/edge.rb", "kind": "method", "scope": "DynamicMethods::run", "signature": "define_singleton_method(:run) do"}

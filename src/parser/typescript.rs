@@ -1,38 +1,56 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
     LanguageParser, MatchMode, build_scope, build_scope_from_node, classify_method_definition,
-    first_child_by_kind, first_line_of_node, flatten_bytes, line_range, node_text_ref,
+    export_aware_sig_node, first_child_by_kind, first_line_of_node, flatten_bytes, handle_pair,
+    handle_var_decl, line_range, node_text_ref,
 };
 use tree_sitter::{Node, Parser};
+
+pub(crate) const LANGUAGE: &str = "typescript";
+pub(crate) const EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts"];
+pub(crate) const ALIASES: &[&str] = &["ts"];
 
 pub struct TsParser;
 
 impl LanguageParser for TsParser {
     fn language(&self) -> &'static str {
-        "ts"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".ts", ".tsx", ".mts", ".cts"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
         &[
             DefKind::Function,
+            DefKind::FunctionDeclaration,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Constructor,
+            DefKind::ConstructorDeclaration,
             DefKind::Getter,
+            DefKind::GetterDeclaration,
             DefKind::Setter,
+            DefKind::SetterDeclaration,
             DefKind::Class,
+            DefKind::ClassDeclaration,
             DefKind::Const,
+            DefKind::ConstDeclaration,
+            DefKind::Var,
+            DefKind::VarDeclaration,
             DefKind::Interface,
             DefKind::Alias,
             DefKind::Enum,
+            DefKind::EnumDeclaration,
             DefKind::Field,
             DefKind::Property,
+            DefKind::PropertyDeclaration,
             DefKind::Namespace,
+            DefKind::ModuleDeclaration,
             DefKind::Variant,
             DefKind::Subscript,
+            DefKind::SubscriptDeclaration,
         ]
     }
 
@@ -41,12 +59,117 @@ impl LanguageParser for TsParser {
     impl_extract_with!(collect_definitions, scope: "");
 }
 
-/// Return the export-aware signature start node: if `node` is wrapped in an
-/// `export_statement`, return that parent; otherwise return `node` itself.
-fn export_aware_sig_node(node: Node) -> Node {
-    match node.parent() {
-        Some(p) if p.kind() == "export_statement" => p,
-        _ => node,
+/// Handle an `ambient_declaration` node wrapping a class or enum declaration.
+/// The signature starts from the `ambient_declaration` node (which includes `declare`)
+/// but the kind and body are determined by the inner child node.
+fn handle_ambient_declaration<'a>(
+    node: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let (target_kind, body_kind) = match child.kind() {
+            "class_declaration" | "abstract_class_declaration" => {
+                (DefKind::ClassDeclaration, "class_body")
+            }
+            "enum_declaration" => (DefKind::EnumDeclaration, "enum_body"),
+            "lexical_declaration" | "variable_declaration" => {
+                handle_ambient_lexical(node, child, source, mode, kinds, results, scope);
+                continue;
+            }
+            _ => {
+                collect_definitions(child, source, mode, kinds, results, scope);
+                continue;
+            }
+        };
+
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) => n,
+            None => continue,
+        };
+        let name_ref = node_text_ref(name_node, source);
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+        let name = name_ref.to_string();
+        let new_scope = build_scope(scope, ".", &name);
+
+        if kinds.contains(&target_kind) {
+            let body = first_child_by_kind(child, body_kind);
+            let end_byte = body
+                .map(|b| b.start_byte())
+                .unwrap_or_else(|| child.end_byte());
+            let signature = flatten_bytes(node.start_byte(), end_byte, source)
+                .unwrap_or_else(|| first_line_of_node(node, source));
+            let start_row = node.start_position().row + 1;
+            let [start, end] = line_range(start_row, child);
+
+            results.push(DefContent {
+                kind: target_kind,
+                lines: [start, end],
+                signature,
+                scope: new_scope.clone(),
+            });
+        }
+
+        // Recurse into body for nested definitions
+        if let Some(body) = first_child_by_kind(child, body_kind) {
+            let mut bc = body.walk();
+            for gc in body.children(&mut bc) {
+                collect_definitions(gc, source, mode, kinds, results, &new_scope);
+            }
+        }
+    }
+}
+
+fn handle_ambient_lexical<'a>(
+    ambient: Node<'a>,
+    lexical: Node<'a>,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let is_const = first_child_by_kind(lexical, "const").is_some();
+    let decl_kind = if is_const {
+        DefKind::ConstDeclaration
+    } else {
+        DefKind::VarDeclaration
+    };
+
+    let mut cursor = lexical.walk();
+    for child in lexical.children(&mut cursor) {
+        if child.kind() != "variable_declarator" {
+            continue;
+        }
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) => n,
+            None => continue,
+        };
+        let name_ref = node_text_ref(name_node, source);
+        if !mode.matches_ident(name_ref) {
+            continue;
+        }
+        let own_scope = build_scope(scope, ".", name_ref);
+
+        if kinds.contains(&decl_kind) {
+            let signature = flatten_bytes(ambient.start_byte(), child.end_byte(), source)
+                .unwrap_or_else(|| first_line_of_node(ambient, source));
+            let start_row = ambient.start_position().row + 1;
+            let [start, end] = line_range(start_row, lexical);
+
+            results.push(DefContent {
+                kind: decl_kind,
+                lines: [start, end],
+                signature,
+                scope: own_scope,
+            });
+        }
     }
 }
 
@@ -156,6 +279,15 @@ fn recurse_into_body(
     }
 }
 
+fn unwrap_first_named_child(node: Node) -> Option<Node> {
+    let child = node.named_child(0)?;
+    if child.kind() == "parenthesized_expression" {
+        child.named_child(0)
+    } else {
+        Some(child)
+    }
+}
+
 fn handle_lexical_decl<'a>(
     node: Node<'a>,
     source: &str,
@@ -164,9 +296,7 @@ fn handle_lexical_decl<'a>(
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
-    if first_child_by_kind(node, "const").is_none() {
-        return;
-    }
+    let is_const = first_child_by_kind(node, "const").is_some();
 
     let sig_start_node = export_aware_sig_node(node);
 
@@ -183,10 +313,20 @@ fn handle_lexical_decl<'a>(
         let name_ref = node_text_ref(name_node, source);
 
         let value_node = child.child_by_field_name("value");
-        let def_kind = match value_node.as_ref().map(|v| v.kind()) {
+        let effective_value = value_node.and_then(|v| match v.kind() {
+            "satisfies_expression" | "as_expression" => unwrap_first_named_child(v),
+            _ => Some(v),
+        });
+        let def_kind = match effective_value.map(|v| v.kind()) {
             Some("arrow_function") | Some("function_expression") => DefKind::Function,
             Some("class") => DefKind::Class,
-            _ => DefKind::Const,
+            _ => {
+                if is_const {
+                    DefKind::Const
+                } else {
+                    DefKind::Var
+                }
+            }
         };
 
         let own_scope = build_scope(scope, ".", name_ref);
@@ -206,7 +346,7 @@ fn handle_lexical_decl<'a>(
         }
 
         // Recurse into value body for class/object definitions (not function bodies)
-        if let Some(value) = value_node {
+        if let Some(value) = effective_value {
             match value.kind() {
                 "class" => {
                     if let Some(body) = value.child_by_field_name("body") {
@@ -281,7 +421,7 @@ fn handle_property_signature<'a>(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Property,
+        kind: DefKind::PropertyDeclaration,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -371,7 +511,7 @@ fn handle_index_signature<'a>(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Subscript,
+        kind: DefKind::SubscriptDeclaration,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -418,7 +558,7 @@ fn handle_construct_signature<'a>(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Constructor,
+        kind: DefKind::ConstructorDeclaration,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -443,7 +583,7 @@ fn handle_call_signature<'a>(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Method,
+        kind: DefKind::MethodDeclaration,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -463,6 +603,10 @@ fn collect_definitions<'a>(
             if let Some(decl) = node.child_by_field_name("declaration") {
                 collect_definitions(decl, source, mode, kinds, results, scope);
             }
+            return;
+        }
+        "ambient_declaration" => {
+            handle_ambient_declaration(node, source, mode, kinds, results, scope);
             return;
         }
         "function_declaration" | "generator_function_declaration" => {
@@ -485,7 +629,7 @@ fn collect_definitions<'a>(
                 mode,
                 kinds,
                 results,
-                DefKind::Function,
+                DefKind::FunctionDeclaration,
                 "statement_block",
                 scope,
             );
@@ -564,6 +708,10 @@ fn collect_definitions<'a>(
             handle_lexical_decl(node, source, mode, kinds, results, scope);
             return;
         }
+        "variable_declaration" => {
+            handle_var_decl(node, source, mode, kinds, results, scope);
+            return;
+        }
         "method_definition" => {
             let def_kind = classify_method_definition(node, source);
             handle_definition(
@@ -578,20 +726,26 @@ fn collect_definitions<'a>(
             );
             return;
         }
+        "pair" => {
+            handle_pair(node, source, mode, kinds, results, scope);
+            return;
+        }
         "method_signature" | "abstract_method_signature" => {
+            let base_kind = classify_method_definition(node, source);
+            let def_kind = base_kind.declaration_pair().unwrap_or(base_kind);
             handle_definition(
                 node,
                 source,
                 mode,
                 kinds,
                 results,
-                DefKind::Method,
+                def_kind,
                 "statement_block",
                 scope,
             );
             return;
         }
-        "internal_module" | "module" => {
+        "internal_module" => {
             let new_scope = build_scope_from_node(node, source, scope, ".");
             if kinds.contains(&DefKind::Namespace) && mode.matches_ident(&new_scope) {
                 let sig = extract_signature_to_body(node, source, "statement_block");
@@ -607,6 +761,47 @@ fn collect_definitions<'a>(
             recurse_into_body(node, source, mode, kinds, results, &new_scope);
             return;
         }
+        "module" => {
+            // Discriminate by name field type: string → ModuleDeclaration, identifier → Namespace
+            let name_node = node.child_by_field_name("name");
+            let is_ambient = name_node.map(|n| n.kind() == "string").unwrap_or(false);
+
+            if is_ambient {
+                // Extract unquoted name from string > string_fragment
+                let name = name_node
+                    .and_then(|s| first_child_by_kind(s, "string_fragment"))
+                    .map(|sf| node_text_ref(sf, source))
+                    .unwrap_or("");
+                let new_scope = build_scope(scope, ".", name);
+                if kinds.contains(&DefKind::ModuleDeclaration) && mode.matches_ident(&new_scope) {
+                    let sig = extract_signature_to_body(node, source, "statement_block");
+                    let start_row = node.start_position().row + 1;
+                    let [start, end] = line_range(start_row, node);
+                    results.push(DefContent {
+                        kind: DefKind::ModuleDeclaration,
+                        lines: [start, end],
+                        signature: sig,
+                        scope: new_scope.clone(),
+                    });
+                }
+                recurse_into_body(node, source, mode, kinds, results, &new_scope);
+            } else {
+                let new_scope = build_scope_from_node(node, source, scope, ".");
+                if kinds.contains(&DefKind::Namespace) && mode.matches_ident(&new_scope) {
+                    let sig = extract_signature_to_body(node, source, "statement_block");
+                    let start_row = node.start_position().row + 1;
+                    let [start, end] = line_range(start_row, node);
+                    results.push(DefContent {
+                        kind: DefKind::Namespace,
+                        lines: [start, end],
+                        signature: sig,
+                        scope: new_scope.clone(),
+                    });
+                }
+                recurse_into_body(node, source, mode, kinds, results, &new_scope);
+            }
+            return;
+        }
         "ERROR" => {
             handle_error_function(node, source, mode, kinds, results, scope);
             return;
@@ -618,7 +813,7 @@ fn collect_definitions<'a>(
             return;
         }
         "property_signature" => {
-            if kinds.contains(&DefKind::Property) {
+            if kinds.contains(&DefKind::PropertyDeclaration) {
                 handle_property_signature(node, source, mode, results, scope);
             }
             return;
@@ -651,19 +846,19 @@ fn collect_definitions<'a>(
             return;
         }
         "index_signature" => {
-            if kinds.contains(&DefKind::Subscript) {
+            if kinds.contains(&DefKind::SubscriptDeclaration) {
                 handle_index_signature(node, source, mode, results, scope);
             }
             return;
         }
         "construct_signature" => {
-            if kinds.contains(&DefKind::Constructor) {
+            if kinds.contains(&DefKind::ConstructorDeclaration) {
                 handle_construct_signature(node, source, mode, results, scope);
             }
             return;
         }
         "call_signature" => {
-            if kinds.contains(&DefKind::Method) {
+            if kinds.contains(&DefKind::MethodDeclaration) {
                 handle_call_signature(node, source, mode, results, scope);
             }
             return;
@@ -674,542 +869,5 @@ fn collect_definitions<'a>(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // --- Kind filter / disambiguation edge cases ---
-
-    #[test]
-    fn ts_kind_filter_func_not_class() {
-        let results = extract_definitions(&TsParser, "foo", &[DefKind::Class], "function foo() {}");
-        assert!(results.is_empty());
-    }
-
-    // --- Edge case tests ---
-
-    #[test]
-    fn ts_empty_source() {
-        let results = extract_definitions(&TsParser, "anything", DefKind::all(), "");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_malformed_source() {
-        let results =
-            extract_definitions(&TsParser, "anything", DefKind::all(), "function {{{{}}}}");
-        assert!(results.is_empty() || results.len() <= 10);
-    }
-
-    #[test]
-    fn ts_incomplete_func() {
-        let results = extract_definitions(&TsParser, "foo", &[DefKind::Function], "function foo()");
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("function foo()"));
-    }
-
-    #[test]
-    fn ts_multi_line_func_signature() {
-        let src = "function multi(\n  x: number,\n  y: string\n): void {}";
-        let results = extract_definitions(&TsParser, "multi", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert!(!results[0].signature.contains('\n'));
-        assert!(results[0].signature.contains("multi"));
-    }
-
-    #[test]
-    fn ts_line_range_correct() {
-        let src = "function foo(): void {\n  return;\n}";
-        let results = extract_definitions(&TsParser, "foo", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].lines, [1, 3]);
-    }
-
-    #[test]
-    fn ts_destructured_const_substring_match() {
-        // Substring matching: "a" appears in "{ a, b }" (the name text of destructured const)
-        let results =
-            extract_definitions(&TsParser, "a", &[DefKind::Const], "const { a, b } = obj;");
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Const);
-    }
-
-    #[test]
-    fn ts_anonymous_arrow_not_extracted() {
-        let results = extract_definitions(
-            &TsParser,
-            "cb",
-            &[DefKind::Function],
-            "setTimeout(() => { console.log('hi'); }, 1000);",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_let_skipped() {
-        let results = extract_definitions(
-            &TsParser,
-            "v",
-            &[DefKind::Const, DefKind::Function],
-            "let v: number = 1;",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn ts_var_skipped() {
-        let results = extract_definitions(
-            &TsParser,
-            "v",
-            &[DefKind::Const, DefKind::Function],
-            "var v = 1;",
-        );
-        assert!(results.is_empty());
-    }
-
-    // --- Scope edge cases ---
-
-    // --- Function-body definitions should NOT be extracted ---
-
-    #[test]
-    fn ts_interface_in_func_not_extracted() {
-        let results = extract_definitions(
-            &TsParser,
-            "InnerIfc",
-            &[DefKind::Interface],
-            "function outer() { interface InnerIfc {} }",
-        );
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn ts_enum_in_class_method_not_extracted() {
-        let results = extract_definitions(
-            &TsParser,
-            "Kind",
-            &[DefKind::Enum],
-            "class Container { method() { enum Kind { A, B } } }",
-        );
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn ts_type_in_func_not_extracted() {
-        let results = extract_definitions(
-            &TsParser,
-            "LocalType",
-            &[DefKind::Alias],
-            "function process() { type LocalType = string; }",
-        );
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn ts_abstract_class_method_scope() {
-        let results = extract_definitions(
-            &TsParser,
-            "impl",
-            &[DefKind::Method],
-            "abstract class Base { impl(): void {} }",
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "Base.impl");
-    }
-
-    // --- TSX grammar switching tests ---
-
-    #[test]
-    fn tsx_function_component() {
-        let src = "function App() { return <div>Hello</div>; }";
-        let results = extract_definitions(&TsParser, "App", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
-        assert_eq!(results[0].scope, "App");
-    }
-
-    #[test]
-    fn tsx_arrow_component() {
-        let src = "const Button = (props: { label: string }) => <button>{props.label}</button>;";
-        let results = extract_definitions(&TsParser, "Button", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Function);
-    }
-
-    #[test]
-    fn tsx_class_component() {
-        let src = "class App extends React.Component { render() { return <div />; } }";
-        let results = extract_definitions(&TsParser, "App", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Class);
-    }
-
-    #[test]
-    fn tsx_interface() {
-        let src = "interface Props { children: React.ReactNode; }";
-        let results = extract_definitions(&TsParser, "Props", &[DefKind::Interface], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Interface);
-    }
-
-    #[test]
-    fn tsx_enum() {
-        let src = "enum Theme { Light, Dark }";
-        let results = extract_definitions(&TsParser, "Theme", &[DefKind::Enum], src);
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn tsx_export_default_func() {
-        let src = "export default function Page() { return <main />; }";
-        let results = extract_definitions(&TsParser, "Page", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("export default"));
-    }
-
-    #[test]
-    fn tsx_nested_definitions_not_extracted() {
-        let src =
-            "function App() { interface Config { debug: boolean; } const handler = () => {}; }";
-        let ifc = extract_definitions(&TsParser, "Config", &[DefKind::Interface], src);
-        assert!(
-            ifc.is_empty(),
-            "Function-body definitions should not be extracted, got: {ifc:?}"
-        );
-
-        let handler = extract_definitions(&TsParser, "handler", &[DefKind::Function], src);
-        assert!(
-            handler.is_empty(),
-            "Function-body definitions should not be extracted, got: {handler:?}"
-        );
-    }
-
-    #[test]
-    fn tsx_generic_component() {
-        let src = "function List<T>(props: { items: T[] }) { return <ul />; }";
-        let results = extract_definitions(&TsParser, "List", &[DefKind::Function], src);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].signature.contains("List<T>"));
-    }
-
-    // --- Scope: const arrow/function_expression body recursion ---
-
-    #[test]
-    fn ts_scope_nested_in_const_arrow_not_extracted() {
-        let src = "function outer() { const inner = () => { function deep() {} }; }";
-        let results = extract_definitions(&TsParser, "deep", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn ts_scope_nested_in_const_function_expression_not_extracted() {
-        let src = "function outer() { const inner = function() { function deep() {} }; }";
-        let results = extract_definitions(&TsParser, "deep", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    // --- Kind: class_expression identified as Class ---
-
-    #[test]
-    fn ts_class_expression_kind() {
-        let src = "const MyClass = class { method() {} };";
-        let results = extract_definitions(&TsParser, "MyClass", &[DefKind::Class], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Class);
-        assert_eq!(results[0].scope, "MyClass");
-    }
-
-    #[test]
-    fn ts_class_expression_method_scope() {
-        let src = "const MyClass = class { method() {} };";
-        let results = extract_definitions(&TsParser, "method", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "MyClass.method");
-    }
-
-    // --- Scope: object literal method in const scope ---
-
-    #[test]
-    fn ts_object_literal_method_scope() {
-        let src = "const config = { init() { return 1; } };";
-        let results = extract_definitions(&TsParser, "init", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "config.init");
-    }
-
-    #[test]
-    fn ts_object_literal_method_nested_in_function_not_extracted() {
-        let src = "function setup() { const config = { init() {} }; }";
-        let results = extract_definitions(&TsParser, "init", &[DefKind::Method], src);
-        assert!(
-            results.is_empty(),
-            "Function-body definitions should not be extracted, got: {results:?}"
-        );
-    }
-
-    // --- Sub-kind classification for method_definition ---
-
-    #[test]
-    fn ts_class_method_is_method_kind() {
-        let src = "class Foo { bar(): void {} }";
-        let results = extract_definitions(&TsParser, "bar", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "Foo.bar");
-    }
-
-    #[test]
-    fn ts_class_constructor_is_constructor_kind() {
-        let src = "class Foo { constructor() {} }";
-        let results = extract_definitions(&TsParser, "constructor", &[DefKind::Constructor], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Constructor);
-    }
-
-    #[test]
-    fn ts_class_getter_is_getter_kind() {
-        let src = "class Foo { get name(): string { return ''; } }";
-        let results = extract_definitions(&TsParser, "name", &[DefKind::Getter], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Getter);
-    }
-
-    #[test]
-    fn ts_class_setter_is_setter_kind() {
-        let src = "class Foo { set name(v: string) {} }";
-        let results = extract_definitions(&TsParser, "name", &[DefKind::Setter], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Setter);
-    }
-
-    // --- Sub-kind classification for method_signature / abstract_method_signature ---
-
-    #[test]
-    fn ts_method_signature_is_method_kind() {
-        let src = "interface IFoo { bar(): void; }";
-        let results = extract_definitions(&TsParser, "bar", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "IFoo.bar");
-    }
-
-    #[test]
-    fn ts_abstract_method_signature_is_method_kind() {
-        let src = "abstract class Base { doWork(): void; }";
-        let results = extract_definitions(&TsParser, "doWork", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "Base.doWork");
-    }
-
-    #[test]
-    fn ts_function_kind_excludes_method() {
-        let src = "class Foo { bar(): void {} }";
-        let results = extract_definitions(&TsParser, "bar", &[DefKind::Function], src);
-        assert!(results.is_empty());
-    }
-
-    // --- Variant (enum member) tests ---
-
-    #[test]
-    fn ts_enum_variant_simple() {
-        let src = "enum Color { Red, Green, Blue }";
-        let results = extract_definitions(&TsParser, "Red", &[DefKind::Variant], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Variant);
-        assert_eq!(results[0].scope, "Color.Red");
-    }
-
-    #[test]
-    fn ts_enum_variant_with_initializer() {
-        let src = "enum Status { Active = 1, Inactive = 0 }";
-        let results = extract_definitions(&TsParser, "Active", &[DefKind::Variant], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Variant);
-        assert_eq!(results[0].scope, "Status.Active");
-    }
-
-    #[test]
-    fn ts_enum_variants_all_extracted() {
-        let src = "enum Direction { Up, Down, Left, Right }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Enum, DefKind::Variant], src);
-        // 1 enum + 4 variants
-        assert_eq!(results.len(), 5);
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Enum && d.scope == "Direction")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Variant && d.scope == "Direction.Up")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Variant && d.scope == "Direction.Down")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Variant && d.scope == "Direction.Left")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Variant && d.scope == "Direction.Right")
-        );
-    }
-
-    #[test]
-    fn ts_enum_variant_kind_filter() {
-        let src = "enum Color { Red, Green }";
-        let results = extract_definitions(&TsParser, "Red", &[DefKind::Enum], src);
-        assert!(
-            results.is_empty(),
-            "Variant should not be extracted when only Enum kind is requested, got: {results:?}"
-        );
-    }
-
-    #[test]
-    fn ts_enum_variant_filter_by_name() {
-        let src = "enum Color { Red, Green, Blue }";
-        let results = extract_definitions(&TsParser, "Green", &[DefKind::Variant], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].scope, "Color.Green");
-    }
-
-    // --- Subscript (index signature) tests ---
-
-    #[test]
-    fn ts_index_signature_in_interface() {
-        let src = "interface StringMap { [key: string]: string; }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Subscript], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Subscript);
-        assert_eq!(results[0].scope, "StringMap.[key: string]");
-        assert!(results[0].signature.contains("[key: string]"));
-    }
-
-    #[test]
-    fn ts_index_signature_kind_filter() {
-        let src = "interface StringMap { [key: string]: string; }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Method], src);
-        assert!(
-            results.is_empty(),
-            "Index signature should not be extracted when only Method kind is requested, got: {results:?}"
-        );
-    }
-
-    // --- construct_signature -> Constructor tests ---
-
-    #[test]
-    fn ts_construct_signature_in_interface() {
-        let src = "interface Factory { new(arg: string): MyClass; }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Constructor], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Constructor);
-        assert_eq!(results[0].scope, "Factory.new");
-        assert!(results[0].signature.contains("new"));
-    }
-
-    #[test]
-    fn ts_construct_signature_kind_filter() {
-        let src = "interface Factory { new(arg: string): MyClass; }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Method], src);
-        assert!(
-            results.is_empty(),
-            "construct_signature should not be extracted when only Method kind is requested, got: {results:?}"
-        );
-    }
-
-    // --- call_signature -> Method tests ---
-
-    #[test]
-    fn ts_call_signature_in_interface() {
-        let src = "interface Callable { (arg: string): void; }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Method], src);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].kind, DefKind::Method);
-        assert_eq!(results[0].scope, "Callable.call");
-    }
-
-    #[test]
-    fn ts_call_signature_kind_filter() {
-        let src = "interface Callable { (arg: string): void; }";
-        let results = extract_definitions(&TsParser, ".*", &[DefKind::Function], src);
-        assert!(
-            results.is_empty(),
-            "call_signature should not be extracted when only Function kind is requested, got: {results:?}"
-        );
-    }
-
-    // --- Combined interface members test ---
-
-    #[test]
-    fn ts_interface_with_mixed_members() {
-        let src = "interface Container { name: string; doWork(): void; [key: string]: any; new(x: number): Container; (input: string): void; }";
-        let results = extract_definitions(
-            &TsParser,
-            ".*",
-            &[
-                DefKind::Interface,
-                DefKind::Property,
-                DefKind::Method,
-                DefKind::Subscript,
-                DefKind::Constructor,
-            ],
-            src,
-        );
-        // 1 interface + 1 property + 1 method (doWork) + 1 subscript + 1 constructor (new) + 1 method (call)
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Interface && d.scope == "Container")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Property && d.scope == "Container.name")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Method && d.scope == "Container.doWork")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Subscript && d.scope == "Container.[key: string]")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Constructor && d.scope == "Container.new")
-        );
-        assert!(
-            results
-                .iter()
-                .any(|d| d.kind == DefKind::Method && d.scope == "Container.call")
-        );
     }
 }

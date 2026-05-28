@@ -6,15 +6,19 @@ use crate::parser::{
 };
 use tree_sitter::{Node, Parser};
 
+pub(crate) const LANGUAGE: &str = "csharp";
+pub(crate) const EXTENSIONS: &[&str] = &["cs", "csx", "cake", "linq"];
+pub(crate) const ALIASES: &[&str] = &["cs", "c#", "c-sharp"];
+
 pub struct CSharpParser;
 
 impl LanguageParser for CSharpParser {
     fn language(&self) -> &'static str {
-        "csharp"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".cs", ".csx", ".cake", ".linq"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
@@ -27,10 +31,12 @@ impl LanguageParser for CSharpParser {
             DefKind::Delegate,
             DefKind::Event,
             DefKind::Method,
+            DefKind::MethodDeclaration,
             DefKind::Constructor,
             DefKind::Getter,
             DefKind::Setter,
             DefKind::Operator,
+            DefKind::OperatorDeclaration,
             DefKind::Destructor,
             DefKind::Subscript,
             DefKind::Const,
@@ -203,16 +209,27 @@ fn collect_definitions(
         }
         "record_declaration" => {
             let own_scope = build_scope_from_node(node, source, scope, ".");
-            if kinds.contains(&DefKind::Record) {
-                handle_type_definition(node, source, mode, DefKind::Record, results, &own_scope);
+            let def_kind = if has_record_struct_modifier(node) {
+                DefKind::Struct
+            } else {
+                DefKind::Record
+            };
+            if kinds.contains(&def_kind) {
+                handle_type_definition(node, source, mode, def_kind, results, &own_scope);
             }
             // record may have a body (declaration_list) or end with `;`
             recurse_into_type_body(node, source, mode, kinds, results, &own_scope);
         }
         // --- Method ---
         "method_declaration" => {
-            if kinds.contains(&DefKind::Method) {
-                handle_method(node, source, mode, DefKind::Method, results, scope);
+            let has_body = node.child_by_field_name("body").is_some();
+            let def_kind = if has_body {
+                DefKind::Method
+            } else {
+                DefKind::MethodDeclaration
+            };
+            if kinds.contains(&def_kind) {
+                handle_method(node, source, mode, def_kind, results, scope);
             }
             // Do not recurse into method body
         }
@@ -235,6 +252,11 @@ fn collect_definitions(
                 handle_event(node, source, mode, results, scope);
             }
         }
+        "event_declaration" => {
+            if kinds.contains(&DefKind::Event) {
+                handle_event_declaration(node, source, mode, results, scope);
+            }
+        }
         // --- Const field / Field ---
         "field_declaration" => {
             if is_const_field(node) {
@@ -251,16 +273,35 @@ fn collect_definitions(
                 handle_enum_member(node, source, mode, results, scope);
             }
         }
-        // --- Subscript (indexer) ---
+        // --- Subscript (indexer) / Indexer accessors (getter/setter) ---
         "indexer_declaration" => {
             if kinds.contains(&DefKind::Subscript) {
                 handle_indexer(node, source, mode, results, scope);
             }
+            handle_indexer_accessors(node, source, mode, kinds, results, scope);
         }
         // --- Operator ---
         "operator_declaration" => {
-            if kinds.contains(&DefKind::Operator) {
-                handle_operator(node, source, mode, results, scope);
+            let has_body = node.child_by_field_name("body").is_some();
+            let def_kind = if has_body {
+                DefKind::Operator
+            } else {
+                DefKind::OperatorDeclaration
+            };
+            if kinds.contains(&def_kind) {
+                handle_operator_with_kind(node, source, mode, def_kind, results, scope);
+            }
+        }
+        // --- Conversion operator (implicit/explicit) ---
+        "conversion_operator_declaration" => {
+            let has_body = node.child_by_field_name("body").is_some();
+            let def_kind = if has_body {
+                DefKind::Operator
+            } else {
+                DefKind::OperatorDeclaration
+            };
+            if kinds.contains(&def_kind) {
+                handle_conversion_operator_with_kind(node, source, mode, def_kind, results, scope);
             }
         }
         // --- Destructor ---
@@ -332,6 +373,17 @@ fn handle_type_definition(
         signature,
         scope: scope.to_string(),
     });
+}
+
+/// Check if a record_declaration has a `struct` modifier (i.e. `record struct`).
+fn has_record_struct_modifier(node: Node) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "struct" {
+            return true;
+        }
+    }
+    false
 }
 
 /// Extract a type definition's signature: from node start to the body boundary or `;`.
@@ -459,7 +511,6 @@ fn handle_property_accessors(
         return;
     }
 
-    let signature = extract_signature_to_semicolon(node, source);
     let mut cursor = accessor_list.walk();
     for child in accessor_list.children(&mut cursor) {
         if child.kind() != "accessor_declaration" {
@@ -487,7 +538,7 @@ fn handle_property_accessors(
         results.push(DefContent {
             kind: def_kind,
             lines: [start, end],
-            signature: signature.clone(),
+            signature: first_line_of_node(child, source),
             scope: own_scope.clone(),
         });
     }
@@ -560,6 +611,44 @@ fn handle_event(
 
     let own_scope = build_scope(scope, ".", name_ref);
     let signature = extract_signature_to_semicolon(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: DefKind::Event,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Handle an event_declaration node (custom event with add/remove accessors).
+/// Name is directly in the "name" field (unlike event_field_declaration which uses variable_declaration).
+/// Signature: from node start to accessor_list or `;`.
+fn handle_event_declaration(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name_node = match node.child_by_field_name("name") {
+        Some(n) => n,
+        None => return,
+    };
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", name_ref);
+    let signature = if let Some(accessors) = node.child_by_field_name("accessors") {
+        flatten_bytes(node.start_byte(), accessors.start_byte(), source)
+            .map(|s| normalize_signature(&s))
+            .unwrap_or_else(|| first_line_of_node(node, source))
+    } else {
+        extract_signature_to_semicolon(node, source)
+    };
     let start_row = node.start_position().row + 1;
     let [start, end] = line_range(start_row, node);
 
@@ -782,13 +871,66 @@ fn handle_indexer(
     });
 }
 
-/// Handle an operator_declaration node: extract as Operator kind.
-/// C# operator overloading uses `public static ReturnType operator +(T a, T b)`.
-/// The name format is "operator+", "operator==", etc.
-fn handle_operator(
+fn handle_indexer_accessors(
     node: Node,
     source: &str,
     mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name = "this";
+    if !mode.matches_ident(name) {
+        return;
+    }
+
+    let accessor_list = match node.child_by_field_name("accessors") {
+        Some(al) => al,
+        None => return,
+    };
+
+    let own_scope = build_scope(scope, ".", name);
+    let mut cursor = accessor_list.walk();
+    for child in accessor_list.children(&mut cursor) {
+        if child.kind() != "accessor_declaration" {
+            continue;
+        }
+
+        let accessor_name = match child.child_by_field_name("name") {
+            Some(n) => node_text_ref(n, source).to_string(),
+            None => continue,
+        };
+
+        let def_kind = match accessor_name.as_str() {
+            "get" => DefKind::Getter,
+            "set" => DefKind::Setter,
+            _ => continue,
+        };
+
+        if !kinds.contains(&def_kind) {
+            continue;
+        }
+
+        let start_row = child.start_position().row + 1;
+        let [start, end] = line_range(start_row, child);
+
+        results.push(DefContent {
+            kind: def_kind,
+            lines: [start, end],
+            signature: first_line_of_node(child, source),
+            scope: own_scope.clone(),
+        });
+    }
+}
+
+/// Handle an operator_declaration node: extract as Operator or OperatorDeclaration kind.
+/// C# operator overloading uses `public static ReturnType operator +(T a, T b)`.
+/// The name format is "operator+", "operator==", etc.
+fn handle_operator_with_kind(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    def_kind: DefKind,
     results: &mut Vec<DefContent>,
     scope: &str,
 ) {
@@ -803,7 +945,7 @@ fn handle_operator(
     let [start, end] = line_range(start_row, node);
 
     results.push(DefContent {
-        kind: DefKind::Operator,
+        kind: def_kind,
         lines: [start, end],
         signature,
         scope: own_scope,
@@ -826,6 +968,55 @@ fn extract_csharp_operator_name(node: Node, source: &str) -> String {
         }
     }
     "operator".to_string()
+}
+
+/// Handle a conversion_operator_declaration node (implicit/explicit operator).
+/// Name format: "implicit operator int" / "explicit operator MyType".
+fn handle_conversion_operator_with_kind(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    def_kind: DefKind,
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let name = extract_conversion_operator_name(node, source);
+    if !mode.matches_ident(&name) {
+        return;
+    }
+
+    let own_scope = build_scope(scope, ".", &name);
+    let signature = extract_method_signature(node, source);
+    let start_row = node.start_position().row + 1;
+    let [start, end] = line_range(start_row, node);
+
+    results.push(DefContent {
+        kind: def_kind,
+        lines: [start, end],
+        signature,
+        scope: own_scope,
+    });
+}
+
+/// Extract conversion operator name: "implicit operator {type}" or "explicit operator {type}".
+/// tree-sitter-c-sharp guarantees "implicit" or "explicit" is present as an anonymous child.
+fn extract_conversion_operator_name(node: Node, source: &str) -> String {
+    let mut direction = "";
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let kind = child.kind();
+        if kind == "implicit" || kind == "explicit" {
+            direction = kind;
+            break;
+        }
+    }
+
+    if let Some(type_node) = node.child_by_field_name("type") {
+        let type_text = node_text(type_node, source);
+        format!("{} operator {}", direction, type_text)
+    } else {
+        format!("{} operator", direction)
+    }
 }
 
 /// Handle a destructor_declaration node: extract as Destructor kind.
@@ -857,277 +1048,4 @@ fn handle_destructor(
         signature,
         scope: own_scope,
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // === Meta tests ===
-
-    #[test]
-    fn test_language_returns_csharp() {
-        let p = CSharpParser;
-        assert_eq!(p.language(), "csharp");
-    }
-
-    // === Edge case tests ===
-
-    #[test]
-    fn test_extract_with_empty_source() {
-        let results = extract_definitions(&CSharpParser, "anything", DefKind::all(), "");
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_extract_with_malformed_source() {
-        let results = extract_definitions(&CSharpParser, "anything", DefKind::all(), "{{{{class");
-        assert!(results.len() <= 10);
-    }
-
-    #[test]
-    fn test_non_const_field_skipped() {
-        let results = extract_definitions(
-            &CSharpParser,
-            "field",
-            &[DefKind::Const],
-            "class Foo { public int field; }",
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_using_directive_skipped() {
-        let src = "using System;\nclass App { }";
-        let using_result = extract_definitions(&CSharpParser, "System", DefKind::all(), src);
-        assert!(using_result.is_empty());
-
-        let app = extract_definitions(&CSharpParser, "App", &[DefKind::Class], src);
-        assert_eq!(app.len(), 1);
-    }
-
-    // === Sub-kind classification tests ===
-
-    #[test]
-    fn test_method_is_method_kind() {
-        let src = "class Foo { public void Bar() { } }";
-        let defs = extract_definitions(&CSharpParser, "Bar", &[DefKind::Method], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Method);
-        assert_eq!(defs[0].scope, "Foo.Bar");
-    }
-
-    #[test]
-    fn test_constructor_is_constructor_kind() {
-        let src = "class Foo { public Foo() { } }";
-        let defs = extract_definitions(&CSharpParser, "Foo", &[DefKind::Constructor], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Constructor);
-        assert_eq!(defs[0].scope, "Foo.Foo");
-    }
-
-    #[test]
-    fn test_function_kind_excludes_method() {
-        let src = "class Foo { public void Bar() { } }";
-        let defs = extract_definitions(&CSharpParser, "Bar", &[DefKind::Function], src);
-        assert!(defs.is_empty(), "method should not match Function kind");
-    }
-
-    #[test]
-    fn test_property_getter_is_getter_kind() {
-        let src = "class Foo { public string Name { get; } }";
-        let defs = extract_definitions(&CSharpParser, "Name", &[DefKind::Getter], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Getter);
-    }
-
-    #[test]
-    fn test_property_setter_is_setter_kind() {
-        let src = "class Foo { public string Name { set; } }";
-        let defs = extract_definitions(&CSharpParser, "Name", &[DefKind::Setter], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Setter);
-    }
-
-    #[test]
-    fn test_property_getter_setter_both_extracted() {
-        let src = "class Foo { public string Name { get; set; } }";
-        let defs = extract_definitions(
-            &CSharpParser,
-            "Name",
-            &[DefKind::Getter, DefKind::Setter],
-            src,
-        );
-        assert_eq!(defs.len(), 2);
-        assert!(defs.iter().any(|d| d.kind == DefKind::Getter));
-        assert!(defs.iter().any(|d| d.kind == DefKind::Setter));
-    }
-
-    #[test]
-    fn test_property_with_bodies() {
-        let src =
-            "class Foo { public string Name { get { return _name; } set { _name = value; } } }";
-        let defs = extract_definitions(
-            &CSharpParser,
-            "Name",
-            &[DefKind::Getter, DefKind::Setter],
-            src,
-        );
-        assert_eq!(defs.len(), 2);
-    }
-
-    #[test]
-    fn test_callable_includes_all_sub_kinds() {
-        let src =
-            "class Foo { public Foo() { } public void Bar() { } public string Name { get; set; } }";
-        let all = &[
-            DefKind::Method,
-            DefKind::Constructor,
-            DefKind::Getter,
-            DefKind::Setter,
-        ];
-        let ctor = extract_definitions(&CSharpParser, "Foo", all, src);
-        assert_eq!(ctor.len(), 1);
-        assert_eq!(ctor[0].kind, DefKind::Constructor);
-
-        let bar = extract_definitions(&CSharpParser, "Bar", all, src);
-        assert_eq!(bar.len(), 1);
-        assert_eq!(bar[0].kind, DefKind::Method);
-
-        let name = extract_definitions(&CSharpParser, "Name", all, src);
-        assert_eq!(name.len(), 2);
-    }
-
-    // === Variant (enum member) tests ===
-
-    #[test]
-    fn test_enum_member_is_variant_kind() {
-        let src = "enum Color { Red, Green, Blue }";
-        let defs = extract_definitions(&CSharpParser, "Red", &[DefKind::Variant], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Variant);
-        assert_eq!(defs[0].scope, "Color.Red");
-    }
-
-    #[test]
-    fn test_enum_members_all_extracted() {
-        let src = "enum Direction { North, South, East, West }";
-        let defs = extract_definitions(&CSharpParser, "Direction", &[DefKind::Variant], src);
-        // "Direction" doesn't match any variant name, so should be empty
-        // (we're searching by name, and variants are named North/South/etc.)
-        assert!(
-            defs.is_empty(),
-            "Direction matches the enum itself, not variants"
-        );
-
-        let north = extract_definitions(&CSharpParser, "North", &[DefKind::Variant], src);
-        assert_eq!(north.len(), 1);
-        assert_eq!(north[0].scope, "Direction.North");
-
-        let south = extract_definitions(&CSharpParser, "South", &[DefKind::Variant], src);
-        assert_eq!(south.len(), 1);
-        assert_eq!(south[0].scope, "Direction.South");
-    }
-
-    #[test]
-    fn test_enum_member_with_value() {
-        let src = "enum HttpStatus { OK = 200, NotFound = 404 }";
-        let defs = extract_definitions(&CSharpParser, "OK", &[DefKind::Variant], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Variant);
-        assert_eq!(defs[0].scope, "HttpStatus.OK");
-    }
-
-    #[test]
-    fn test_variant_kind_filtered_out() {
-        let src = "enum Color { Red }";
-        let defs = extract_definitions(&CSharpParser, "Red", &[DefKind::Class], src);
-        assert!(defs.is_empty(), "variant should not match Class kind");
-    }
-
-    // === Subscript (indexer) tests ===
-
-    #[test]
-    fn test_indexer_is_subscript_kind() {
-        let src = "class MyList { public int this[int index] { get { return _items[index]; } } }";
-        let defs = extract_definitions(&CSharpParser, "this", &[DefKind::Subscript], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Subscript);
-        assert_eq!(defs[0].scope, "MyList.this");
-    }
-
-    #[test]
-    fn test_indexer_with_setter() {
-        let src = "class MyList { public string this[int i] { get { return \"\"; } set { } } }";
-        let defs = extract_definitions(&CSharpParser, "this", &[DefKind::Subscript], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Subscript);
-    }
-
-    #[test]
-    fn test_subscript_kind_filtered_out() {
-        let src = "class MyList { public int this[int index] { get { return 0; } } }";
-        let defs = extract_definitions(&CSharpParser, "this", &[DefKind::Method], src);
-        assert!(defs.is_empty(), "indexer should not match Method kind");
-    }
-
-    // === Operator tests ===
-
-    #[test]
-    fn test_binary_operator_is_operator_kind() {
-        let src =
-            "class Vector { public static Vector operator +(Vector a, Vector b) { return a; } }";
-        let defs = extract_definitions(&CSharpParser, "operator", &[DefKind::Operator], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Operator);
-        assert_eq!(defs[0].scope, "Vector.operator+");
-    }
-
-    #[test]
-    fn test_comparison_operator_is_operator_kind() {
-        let src =
-            "class Money { public static bool operator ==(Money a, Money b) { return true; } }";
-        let defs = extract_definitions(&CSharpParser, "operator", &[DefKind::Operator], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Operator);
-        assert_eq!(defs[0].scope, "Money.operator==");
-    }
-
-    #[test]
-    fn test_operator_kind_filtered_out() {
-        let src =
-            "class Vector { public static Vector operator +(Vector a, Vector b) { return a; } }";
-        let defs = extract_definitions(&CSharpParser, "operator", &[DefKind::Method], src);
-        assert!(defs.is_empty(), "operator should not match Method kind");
-    }
-
-    // === Destructor tests ===
-
-    #[test]
-    fn test_destructor_is_destructor_kind() {
-        let src = "class Foo { ~Foo() { } }";
-        let defs = extract_definitions(&CSharpParser, "Foo", &[DefKind::Destructor], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Destructor);
-        assert_eq!(defs[0].scope, "Foo.Foo");
-    }
-
-    #[test]
-    fn test_destructor_kind_filtered_out() {
-        let src = "class Foo { ~Foo() { } }";
-        let defs = extract_definitions(&CSharpParser, "Foo", &[DefKind::Method], src);
-        // Constructor also matches "Foo" but not destructor
-        // Only if constructor exists; here there's no constructor, so nothing matches Method
-        assert!(defs.is_empty(), "destructor should not match Method kind");
-    }
-
-    #[test]
-    fn test_destructor_in_namespace() {
-        let src = "namespace MyApp { class Resource { ~Resource() { Cleanup(); } } }";
-        let defs = extract_definitions(&CSharpParser, "Resource", &[DefKind::Destructor], src);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Destructor);
-        assert_eq!(defs[0].scope, "MyApp.Resource.Resource");
-    }
 }

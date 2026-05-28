@@ -1,23 +1,38 @@
 use crate::model::{DefContent, DefKind};
 use crate::parser::{
-    LanguageParser, MatchMode, build_scope, first_line_of_node, flatten_bytes, line_range,
-    node_text, normalize_signature,
+    LanguageParser, MatchMode, build_scope, classify_metamethod, extract_dotted_name,
+    first_child_by_kind, first_line_of_node, flatten_bytes, line_range, node_text, node_text_ref,
+    normalize_signature,
 };
 use tree_sitter::{Node, Parser};
+
+pub(crate) const LANGUAGE: &str = "lua";
+pub(crate) const EXTENSIONS: &[&str] = &["lua", "nse", "rockspec"];
+pub(crate) const ALIASES: &[&str] = &[];
 
 pub struct LuaParser;
 
 impl LanguageParser for LuaParser {
     fn language(&self) -> &'static str {
-        "lua"
+        LANGUAGE
     }
 
     fn extensions(&self) -> &'static [&'static str] {
-        &[".lua", ".nse", ".rockspec"]
+        EXTENSIONS
     }
 
     fn supported_kinds(&self) -> &'static [DefKind] {
-        &[DefKind::Function, DefKind::Method]
+        &[
+            DefKind::Function,
+            DefKind::Method,
+            DefKind::Const,
+            DefKind::Var,
+            DefKind::Field,
+            DefKind::Operator,
+            DefKind::Getter,
+            DefKind::Setter,
+            DefKind::Destructor,
+        ]
     }
 
     impl_init_parser!(tree_sitter_lua::LANGUAGE, "Lua");
@@ -42,26 +57,6 @@ fn extract_lua_signature(node: Node, source: &str) -> String {
     normalize_signature(&sig)
 }
 
-fn extract_name(name_node: Node, source: &str) -> Option<(String, String)> {
-    match name_node.kind() {
-        "identifier" => {
-            let text = node_text(name_node, source);
-            Some((text.clone(), text))
-        }
-        "dot_index_expression" | "method_index_expression" => {
-            let table = name_node.child_by_field_name("table")?;
-            let child = name_node
-                .child_by_field_name("field")
-                .or_else(|| name_node.child_by_field_name("method"))?;
-            let (table_path, _) = extract_name(table, source)?;
-            let child_text = node_text(child, source);
-            let full_path = format!("{}.{}", table_path, child_text);
-            Some((full_path, child_text))
-        }
-        _ => None,
-    }
-}
-
 fn handle_function(
     node: Node,
     source: &str,
@@ -75,19 +70,21 @@ fn handle_function(
         None => return,
     };
 
-    let (full_path, final_name) = match extract_name(name_node, source) {
+    let (full_path, final_name) = match extract_dotted_name(name_node, source) {
         Some(pair) => pair,
         None => return,
     };
 
     let own_scope = build_scope(scope, ".", &full_path);
 
-    // Determine kind based on name node type: colon syntax → Method, otherwise → Function
-    let def_kind = if name_node.kind() == "method_index_expression" {
-        DefKind::Method
-    } else {
-        DefKind::Function
-    };
+    // Determine kind: metamethod overrides take priority, then colon vs dot syntax
+    let def_kind = classify_metamethod(&final_name).unwrap_or_else(|| {
+        if name_node.kind() == "method_index_expression" {
+            DefKind::Method
+        } else {
+            DefKind::Function
+        }
+    });
 
     if kinds.contains(&def_kind) && mode.matches_ident(&final_name) {
         let signature = extract_lua_signature(node, source);
@@ -108,6 +105,220 @@ fn handle_function(
     }
 }
 
+/// Handle `variable_declaration` (local variables): `local x = 1`, `local x`, `local x <const> = 1`
+///
+/// Only extracts when at top-level (scope is empty) and variable_list contains a single identifier.
+/// Checks for `<const>` attribute first — Const takes priority over Var.
+fn handle_variable_declaration(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !scope.is_empty()
+        || !kinds.contains(&DefKind::Var)
+            && !kinds.contains(&DefKind::Const)
+            && !kinds.contains(&DefKind::Function)
+    {
+        return;
+    }
+
+    // variable_declaration has two forms:
+    // Form A (no assignment): variable_declaration > variable_list
+    // Form B (with assignment): variable_declaration > assignment_statement > variable_list
+    let var_list = if let Some(vl) = first_child_by_kind(node, "variable_list") {
+        vl
+    } else if let Some(assignment) = first_child_by_kind(node, "assignment_statement") {
+        match first_child_by_kind(assignment, "variable_list") {
+            Some(vl) => vl,
+            None => return,
+        }
+    } else {
+        return;
+    };
+
+    extract_var_or_const(&var_list, node, source, mode, kinds, results);
+}
+
+/// Handle top-level `assignment_statement` (global assignment): `x = 1`
+///
+/// Only extracts when at top-level and variable_list contains a single identifier.
+fn handle_assignment_statement(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    if !scope.is_empty() || !kinds.contains(&DefKind::Var) && !kinds.contains(&DefKind::Function) {
+        return;
+    }
+
+    let var_list = match first_child_by_kind(node, "variable_list") {
+        Some(vl) => vl,
+        None => return,
+    };
+
+    extract_var_or_const(&var_list, node, source, mode, kinds, results);
+}
+
+/// Extract Var, Const, or Function from a variable_list node.
+///
+/// Const detection: checks if variable_list has an `attribute` child whose identifier is "const".
+/// Function detection: checks if expression_list value is a `function_definition`.
+/// Only extracts when variable_list contains exactly one plain identifier (no dot/bracket index).
+fn extract_var_or_const(
+    var_list: &Node,
+    parent_node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+) {
+    // Collect all name children and check for attribute
+    let mut names: Vec<Node> = Vec::new();
+    let mut is_const = false;
+    let mut cursor = var_list.walk();
+    for child in var_list.children_by_field_name("name", &mut cursor) {
+        names.push(child);
+    }
+    // Check for attribute (e.g., <const>)
+    if let Some(attr_node) = var_list.child_by_field_name("attribute") {
+        if let Some(attr_ident) = first_child_by_kind(attr_node, "identifier") {
+            if node_text_ref(attr_ident, source) == "const" {
+                is_const = true;
+            }
+        }
+    }
+
+    // Only extract single-identifier variable lists
+    if names.len() != 1 {
+        return;
+    }
+    let name_node = names[0];
+    if name_node.kind() != "identifier" {
+        return;
+    }
+
+    let name_ref = node_text_ref(name_node, source);
+    if !mode.matches_ident(name_ref) {
+        return;
+    }
+
+    let def_kind = if is_const {
+        DefKind::Const
+    } else if has_function_definition_value(parent_node) {
+        DefKind::Function
+    } else {
+        DefKind::Var
+    };
+
+    if !kinds.contains(&def_kind) {
+        return;
+    }
+
+    let name = name_ref.to_string();
+    let signature = first_line_of_node(parent_node, source);
+    let start_row = parent_node.start_position().row + 1;
+    let [start, end] = line_range(start_row, parent_node);
+
+    results.push(DefContent {
+        kind: def_kind,
+        lines: [start, end],
+        signature,
+        scope: name,
+    });
+}
+
+/// Check if a `variable_declaration` or `assignment_statement` node has a
+/// `function_definition` as the sole value in its expression_list.
+fn has_function_definition_value(parent_node: Node) -> bool {
+    let expr_list = first_child_by_kind(parent_node, "expression_list").or_else(|| {
+        first_child_by_kind(parent_node, "assignment_statement")
+            .and_then(|a| first_child_by_kind(a, "expression_list"))
+    });
+    let Some(el) = expr_list else {
+        return false;
+    };
+    let mut cursor = el.walk();
+    let children: Vec<Node> = el.children(&mut cursor).collect();
+    children.len() == 1 && children[0].kind() == "function_definition"
+}
+
+/// Handle `table_constructor`: extract named fields.
+///
+/// - function_definition value → Method (with body recursion for nested functions)
+/// - Other values → Field
+/// - Positional fields (no identifier key) are skipped.
+fn handle_table_constructor(
+    node: Node,
+    source: &str,
+    mode: &MatchMode,
+    kinds: &[DefKind],
+    results: &mut Vec<DefContent>,
+    scope: &str,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "field" {
+            continue;
+        }
+        let name_node = match child.child_by_field_name("name") {
+            Some(n) if n.kind() == "identifier" => n,
+            _ => continue,
+        };
+
+        let field_name = node_text(name_node, source);
+        let own_scope = build_scope(scope, ".", &field_name);
+        let value_node = child.child_by_field_name("value");
+
+        // Always recurse into nested table constructors regardless of name/kind match
+        if let Some(value) = value_node {
+            if value.kind() == "table_constructor" {
+                handle_table_constructor(value, source, mode, kinds, results, &own_scope);
+            }
+        }
+
+        if !mode.matches_ident(&field_name) {
+            continue;
+        }
+
+        let def_kind = match value_node.as_ref().map(|v| v.kind()) {
+            Some("function_definition") => {
+                classify_metamethod(&field_name).unwrap_or(DefKind::Method)
+            }
+            _ => DefKind::Field,
+        };
+
+        if !kinds.contains(&def_kind) {
+            continue;
+        }
+
+        let signature = first_line_of_node(child, source);
+        let start_row = child.start_position().row + 1;
+        let [start, end] = line_range(start_row, child);
+
+        results.push(DefContent {
+            kind: def_kind,
+            lines: [start, end],
+            signature,
+            scope: own_scope.clone(),
+        });
+
+        // Recurse into function bodies for nested definitions
+        if let Some(value) = value_node {
+            if value.kind() == "function_definition" {
+                if let Some(body) = value.child_by_field_name("body") {
+                    recurse_children(body, source, mode, kinds, results, &own_scope);
+                }
+            }
+        }
+    }
+}
+
 fn collect_definitions(
     node: Node,
     source: &str,
@@ -119,6 +330,23 @@ fn collect_definitions(
     match node.kind() {
         "function_declaration" => {
             handle_function(node, source, mode, kinds, results, scope);
+        }
+        "table_constructor" => {
+            handle_table_constructor(node, source, mode, kinds, results, scope);
+        }
+        "variable_declaration" => {
+            handle_variable_declaration(node, source, mode, kinds, results, scope);
+            // Recurse into expression_list to find table constructors and nested definitions,
+            // but skip assignment_statement to avoid double-extracting variables
+            if let Some(assignment) = first_child_by_kind(node, "assignment_statement") {
+                if let Some(expr_list) = first_child_by_kind(assignment, "expression_list") {
+                    recurse_children(expr_list, source, mode, kinds, results, scope);
+                }
+            }
+        }
+        "assignment_statement" => {
+            handle_assignment_statement(node, source, mode, kinds, results, scope);
+            recurse_children(node, source, mode, kinds, results, scope);
         }
         _ => {
             recurse_children(node, source, mode, kinds, results, scope);
@@ -137,121 +365,5 @@ fn recurse_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_definitions(child, source, mode, kinds, results, scope);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::extract_definitions;
-
-    // === Edge case tests ===
-
-    #[test]
-    fn test_kind_filter_rejects_class() {
-        let source = r#"
-function my_func()
-    return 1
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "my_func", &[DefKind::Class], source);
-        assert!(
-            defs.is_empty(),
-            "Function should not match Class kind filter"
-        );
-    }
-
-    #[test]
-    fn test_no_match_for_local_variable() {
-        let source = r#"
-local x = 10
-local y = function() return 1 end
-"#;
-        let defs = extract_definitions(&LuaParser, "x", &[DefKind::Function], source);
-        assert!(defs.is_empty(), "Local variables should not be extracted");
-        let defs = extract_definitions(&LuaParser, "y", &[DefKind::Function], source);
-        assert!(
-            defs.is_empty(),
-            "Anonymous function assignments should not be extracted"
-        );
-    }
-
-    #[test]
-    fn test_empty_source() {
-        let source = "";
-        let defs = extract_definitions(&LuaParser, "anything", &[DefKind::Function], source);
-        assert!(defs.is_empty());
-    }
-
-    // === Signature: body comments excluded ===
-    // tree-sitter-lua places comments between parameters and body as direct
-    // children of function_declaration (not inside the body block).
-    // The Lua-specific signature extractor uses parameters.end_byte() to
-    // avoid including these stray comments.
-
-    #[test]
-    fn test_signature_excludes_body_comment() {
-        let source = r#"
-function greet()
-    -- This comment should not appear in signature
-    local msg = "hello"
-    return msg
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "greet", &[DefKind::Function], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].signature, "function greet()");
-    }
-
-    #[test]
-    fn test_local_function_signature_excludes_body_comment() {
-        let source = r#"
-local function helper()
-    -- helper comment
-    return 42
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "helper", &[DefKind::Function], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].signature, "local function helper()");
-    }
-
-    #[test]
-    fn test_no_comment_function_signature_is_clean() {
-        let source = r#"
-function clean_func()
-    return "clean"
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "clean_func", &[DefKind::Function], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].signature, "function clean_func()");
-    }
-
-    #[test]
-    fn test_function_with_params_signature_excludes_body_comment() {
-        let source = r#"
-function add(a, b)
-    -- compute sum
-    return a + b
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "add", &[DefKind::Function], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].signature, "function add(a, b)");
-    }
-
-    #[test]
-    fn test_method_signature_excludes_body_comment() {
-        let source = r#"
-function MyClass:greet()
-    -- method body comment
-    return "hello"
-end
-"#;
-        let defs = extract_definitions(&LuaParser, "greet", &[DefKind::Method], source);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].kind, DefKind::Method);
-        assert_eq!(defs[0].signature, "function MyClass:greet()");
     }
 }

@@ -1,0 +1,77 @@
+{"path": "tests/fixtures/python/core.py", "kind": "function", "scope": "top_level_func", "signature": "def top_level_func(x: int) -> str"}
+{"path": "tests/fixtures/python/core.py", "kind": "function", "scope": "_private", "signature": "def _private()"}
+{"path": "tests/fixtures/python/core.py", "kind": "function", "scope": "async_fetch", "signature": "async def async_fetch(url: str) -> None"}
+{"path": "tests/fixtures/python/core.py", "kind": "var", "scope": "config_path", "signature": "config_path"}
+{"path": "tests/fixtures/python/core.py", "kind": "var", "scope": "max_retries", "signature": "max_retries: int"}
+{"path": "tests/fixtures/python/core.py", "kind": "var", "scope": "debug_mode", "signature": "debug_mode: bool"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "MyClass", "signature": "class MyClass(Parent): # ── Field ──"}
+{"path": "tests/fixtures/python/core.py", "kind": "field", "scope": "MyClass.name", "signature": "name"}
+{"path": "tests/fixtures/python/core.py", "kind": "field", "scope": "MyClass.timeout", "signature": "timeout: int"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "MyClass.regular_method", "signature": "def regular_method(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "constructor", "scope": "MyClass.__init__", "signature": "def __init__(self, name)"}
+{"path": "tests/fixtures/python/core.py", "kind": "destructor", "scope": "MyClass.__del__", "signature": "def __del__(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "operator", "scope": "MyClass.__add__", "signature": "def __add__(self, other)"}
+{"path": "tests/fixtures/python/core.py", "kind": "subscript", "scope": "MyClass.__getitem__", "signature": "def __getitem__(self, key)"}
+{"path": "tests/fixtures/python/core.py", "kind": "getter", "scope": "MyClass.count", "signature": "@property def count(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "setter", "scope": "MyClass.count", "signature": "@count.setter def count(self, value)"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "MyClass.Inner", "signature": "class Inner"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "MyClass.Inner.inner_method", "signature": "def inner_method(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "StaticHolder", "signature": "class StaticHolder"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "StaticHolder.static_helper", "signature": "@staticmethod def static_helper()"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "ClassMeta", "signature": "class ClassMeta"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "ClassMeta.factory_method", "signature": "@classmethod def factory_method(cls)"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "AsyncService", "signature": "class AsyncService"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "AsyncService.async_handle", "signature": "async def async_handle(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "enum", "scope": "Color", "signature": "class Color(Enum)"}
+{"path": "tests/fixtures/python/core.py", "kind": "variant", "scope": "Color.RED", "signature": "RED"}
+{"path": "tests/fixtures/python/core.py", "kind": "protocol", "scope": "Serializable", "signature": "class Serializable(Protocol)"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "Serializable.serialize", "signature": "def serialize(self) -> bytes"}
+{"path": "tests/fixtures/python/core.py", "kind": "alias", "scope": "Point", "signature": "type Point = tuple[float, float]"}
+{"path": "tests/fixtures/python/core.py", "kind": "alias", "scope": "Result", "signature": "type Result[T] = T | None"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "Settings", "signature": "class Settings"}
+{"path": "tests/fixtures/python/core.py", "kind": "alias", "scope": "Settings.Config", "signature": "type Config = dict[str, object]"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "L1", "signature": "class L1"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "L1.L2", "signature": "class L2"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "L1.L2.L3", "signature": "class L3"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "L1.L2.L3.L4", "signature": "class L4"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "L1.L2.L3.L4.L5", "signature": "class L5"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "L1.L2.L3.L4.L5.deep_method", "signature": "def deep_method(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "function", "scope": "process", "signature": "def process()"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "Alpha.process", "signature": "def process(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/python/core.py", "kind": "method", "scope": "Beta.process", "signature": "def process(self)"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "First", "signature": "class First"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "First.Item", "signature": "class Item"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "Second", "signature": "class Second"}
+{"path": "tests/fixtures/python/core.py", "kind": "class", "scope": "Second.Item", "signature": "class Item"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "__init__", "signature": "def __init__()"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "__add__", "signature": "def __add__(x, y)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "factory", "signature": "def factory()"}
+{"path": "tests/fixtures/python/edge.py", "kind": "method", "scope": "factory.inner", "signature": "def inner()"}
+{"path": "tests/fixtures/python/edge.py", "kind": "alias", "scope": "HeaderValue", "signature": "HeaderValue: TypeAlias = str | list[str]"}
+{"path": "tests/fixtures/python/edge.py", "kind": "class", "scope": "AppConfig", "signature": "class AppConfig"}
+{"path": "tests/fixtures/python/edge.py", "kind": "alias", "scope": "AppConfig.Value", "signature": "Value: TypeAlias = dict[str, object]"}
+{"path": "tests/fixtures/python/edge.py", "kind": "enum", "scope": "Status", "signature": "class Status(SomeMixin, IntEnum)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "variant", "scope": "Status.OK", "signature": "OK"}
+{"path": "tests/fixtures/python/edge.py", "kind": "enum", "scope": "Perm", "signature": "class Perm(Flag)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "variant", "scope": "Perm.R", "signature": "R"}
+{"path": "tests/fixtures/python/edge.py", "kind": "protocol", "scope": "MyProto", "signature": "class MyProto(SomeBase, Protocol)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "method", "scope": "MyProto.method", "signature": "def method(self)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "enum", "scope": "Weird", "signature": "class Weird(Enum, Protocol)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "variant", "scope": "Weird.A", "signature": "A"}
+{"path": "tests/fixtures/python/edge.py", "kind": "class", "scope": "ChildClass", "signature": "class ChildClass(Parent)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "method", "scope": "ChildClass.method", "signature": "def method(self)"}
+{"path": "tests/fixtures/python/edge.py", "kind": "var", "scope": "name", "signature": "name: str"}
+{"path": "tests/fixtures/python/edge.py", "kind": "var", "scope": "MAX_SIZE", "signature": "MAX_SIZE"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "real_func", "signature": "def real_func()"}
+{"path": "tests/fixtures/python/edge.py", "kind": "var", "scope": "code_string", "signature": "code_string"}
+{"path": "tests/fixtures/python/edge.py", "kind": "var", "scope": "doc", "signature": "doc"}
+{"path": "tests/fixtures/python/edge.py", "kind": "class", "scope": "MinimalClass", "signature": "class MinimalClass"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "process_data", "signature": "def process_data( items: list,  # input items verbose: bool,  # verbose mode ) -> None"}
+{"path": "tests/fixtures/python/edge.py", "kind": "class", "scope": "UserRecord", "signature": "@dataclass  # auto-generate __init__ class UserRecord"}
+{"path": "tests/fixtures/python/edge.py", "kind": "field", "scope": "UserRecord.name", "signature": "name: str"}
+{"path": "tests/fixtures/python/edge.py", "kind": "field", "scope": "UserRecord.age", "signature": "age: int"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "fetch_url", "signature": "@retry(max_attempts=3)  # retry up to 3 times def fetch_url(url: str) -> bytes"}
+{"path": "tests/fixtures/python/edge.py", "kind": "function", "scope": "compute", "signature": "@cache  # cache the result @timeout(30)  # 30 second timeout def compute(x: int) -> int"}
+{"path": "tests/fixtures/python/edge.py", "kind": "alias", "scope": "Matrix", "signature": "type Matrix = list[ list[float], ]"}

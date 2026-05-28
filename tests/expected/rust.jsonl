@@ -1,0 +1,64 @@
+{"path": "tests/fixtures/rust/core.rs", "kind": "function", "scope": "top_func", "signature": "fn top_func(x: i32) -> bool"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "const", "scope": "MAX_LEN", "signature": "const MAX_LEN: usize = 1024;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "const", "scope": "GLOBAL_COUNT", "signature": "static GLOBAL_COUNT: usize = 0;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "macro", "scope": "say_hello", "signature": "macro_rules! say_hello { () => { println!(\"hello\") };"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "alias", "scope": "Point", "signature": "type Point = (f64, f64);"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "struct", "scope": "MyStruct", "signature": "struct MyStruct"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "MyStruct::value", "signature": "value: i32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "impl", "scope": "MyStruct", "signature": "impl MyStruct"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "method", "scope": "MyStruct::get_value", "signature": "fn get_value(&self) -> i32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "method", "scope": "MyStruct::async_method", "signature": "pub async fn async_method(&self) -> i32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "impl", "scope": "Display for MyStruct", "signature": "impl std::fmt::Display for MyStruct"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "method", "scope": "MyStruct::fmt", "signature": "fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "enum", "scope": "Color", "signature": "enum Color"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "variant", "scope": "Color::Red", "signature": "Red"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "variant", "scope": "Color::Blue", "signature": "Blue"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "variant", "scope": "Color::Rgb", "signature": "Rgb"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "Color::Rgb::r", "signature": "r: u8"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "Color::Rgb::g", "signature": "g: u8"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "Color::Rgb::b", "signature": "b: u8"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "union", "scope": "IntOrFloat", "signature": "union IntOrFloat"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "IntOrFloat::i", "signature": "i: i32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "IntOrFloat::f", "signature": "f: f32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "trait", "scope": "MyTrait", "signature": "trait MyTrait"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "associated_type", "scope": "MyTrait::Item", "signature": "type Item;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "method_declaration", "scope": "MyTrait::required_method", "signature": "fn required_method(&self) -> i32;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "module", "scope": "my_mod", "signature": "mod my_mod"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "function", "scope": "my_mod::mod_func", "signature": "fn mod_func()"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "module_declaration", "scope": "external_mod", "signature": "mod external_mod;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "struct", "scope": "Vec2", "signature": "struct Vec2"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "Vec2::x", "signature": "x: f64"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "Vec2::y", "signature": "y: f64"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "impl", "scope": "Add for Vec2", "signature": "impl std::ops::Add for Vec2"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "associated_type", "scope": "Vec2::Output", "signature": "type Output = Self;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "operator", "scope": "Vec2::add", "signature": "fn add(self, rhs: Self) -> Self::Output"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "struct", "scope": "MyVec", "signature": "struct MyVec"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "MyVec::data", "signature": "data: Vec<i32>"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "impl", "scope": "Index for MyVec", "signature": "impl std::ops::Index<usize> for MyVec"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "associated_type", "scope": "MyVec::Output", "signature": "type Output = i32;"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "subscript", "scope": "MyVec::index", "signature": "fn index(&self, idx: usize) -> &i32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "struct", "scope": "Resource", "signature": "struct Resource"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "field", "scope": "Resource::handle", "signature": "handle: i32"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "impl", "scope": "Drop for Resource", "signature": "impl Drop for Resource"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "destructor", "scope": "Resource::drop", "signature": "fn drop(&mut self)"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "module", "scope": "outer", "signature": "mod outer"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "module", "scope": "outer::inner", "signature": "mod inner"}
+{"path": "tests/fixtures/rust/core.rs", "kind": "function", "scope": "outer::inner::deep_func", "signature": "fn deep_func()"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "function", "scope": "outer", "signature": "fn outer()"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "trait", "scope": "Shape", "signature": "trait Shape"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "method_declaration", "scope": "Shape::area", "signature": "fn area(&self) -> f64;"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "method", "scope": "Shape::name", "signature": "fn name(&self) -> &'static str"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "struct", "scope": "S", "signature": "struct S"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "impl", "scope": "S", "signature": "impl S"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "method", "scope": "S::inherent_add", "signature": "fn inherent_add(&self) -> i32"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "impl", "scope": "Clone for S", "signature": "impl Clone for S"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "method", "scope": "S::clone", "signature": "fn clone(&self) -> S"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "macro", "scope": "make_answer", "signature": "#[proc_macro] pub fn make_answer(_input: proc_macro::TokenStream) -> proc_macro::TokenStream"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "function", "scope": "inline_func", "signature": "#[inline] fn inline_func()"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "function", "scope": "const_func", "signature": "const fn const_func()"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "struct", "scope": "Wrapper", "signature": "struct Wrapper<T>"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "field", "scope": "Wrapper::inner", "signature": "inner: T"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "function", "scope": "generic_fn", "signature": "fn generic_fn<T>(x: T) -> T where T: Clone"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "function", "scope": "complex_sig", "signature": "pub async fn complex_sig<'a, T: Clone + Send + 'static>( x: &'a [T], y: i32, ) -> Result<Vec<T>, Box<dyn std::error::Error>>"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "module_declaration", "scope": "tests_mod", "signature": "#[cfg(test)] mod tests_mod;"}
+{"path": "tests/fixtures/rust/edge.rs", "kind": "var", "scope": "MUTABLE_GLOBAL", "signature": "static mut MUTABLE_GLOBAL: i32 = 1;"}

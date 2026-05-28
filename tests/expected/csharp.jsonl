@@ -1,0 +1,54 @@
+{"path": "tests/fixtures/csharp/core.cs", "kind": "namespace", "scope": "MyApp.Models", "signature": "namespace MyApp.Models"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "class", "scope": "MyApp.Models.User", "signature": "public class User"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "field", "scope": "MyApp.Models.User._name", "signature": "private string _name"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "const", "scope": "MyApp.Models.User.MaxAge", "signature": "public const int MaxAge"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "constructor", "scope": "MyApp.Models.User.User", "signature": "public User(string name)"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "method", "scope": "MyApp.Models.User.GetName", "signature": "public string GetName()"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "property", "scope": "MyApp.Models.User.DisplayName", "signature": "public string DisplayName { get; set; }"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "event", "scope": "MyApp.Models.User.OnChanged", "signature": "public event EventHandler OnChanged"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "interface", "scope": "MyApp.Models.IRepository", "signature": "public interface IRepository"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "method_declaration", "scope": "MyApp.Models.IRepository.GetName", "signature": "string GetName(int id);"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "enum", "scope": "MyApp.Models.Status", "signature": "public enum Status"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "variant", "scope": "MyApp.Models.Status.Active", "signature": "Active"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "struct", "scope": "MyApp.Models.Point", "signature": "public struct Point"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "field", "scope": "MyApp.Models.Point.X", "signature": "public double X"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "record", "scope": "MyApp.Models.Person", "signature": "public record Person(string FirstName, string LastName);"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "delegate", "scope": "MyApp.Models.Validator", "signature": "public delegate bool Validator(string input)"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "namespace", "scope": "MyApp.Services", "signature": "namespace MyApp.Services;"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "class", "scope": "MyApp.Services.UserService", "signature": "public class UserService"}
+{"path": "tests/fixtures/csharp/core.cs", "kind": "method", "scope": "MyApp.Services.UserService.CreateUser", "signature": "public void CreateUser(string name)"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "namespace", "scope": "MyApp.Edge", "signature": "namespace MyApp.Edge;"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "struct", "scope": "MyApp.Edge.Coord", "signature": "public record struct Coord(double X, double Y);"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "record", "scope": "MyApp.Edge.Mailbox", "signature": "public record Mailbox(string Address, string DisplayName);"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.MyList", "signature": "public class MyList"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "subscript", "scope": "MyApp.Edge.MyList.this", "signature": "public string this[int index] { get { return \"\"; } set { } }"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "getter", "scope": "MyApp.Edge.MyList.this", "signature": "get { return \"\"; }"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "setter", "scope": "MyApp.Edge.MyList.this", "signature": "set { }"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Vector", "signature": "public class Vector"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "operator", "scope": "MyApp.Edge.Vector.operator+", "signature": "public static Vector operator +(Vector a, Vector b)"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Resource", "signature": "public class Resource"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "destructor", "scope": "MyApp.Edge.Resource.Resource", "signature": "~Resource()"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Config", "signature": "public static class Config"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "const", "scope": "MyApp.Edge.Config.PortA", "signature": "public const int PortA"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "const", "scope": "MyApp.Edge.Config.PortB", "signature": "public const int PortA"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Settings", "signature": "public class Settings"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "property", "scope": "MyApp.Edge.Settings.Name", "signature": "public string Name { get; }"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Product", "signature": "public class Product"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "field", "scope": "MyApp.Edge.Product.Id", "signature": "public int Id"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "field", "scope": "MyApp.Edge.Product._name", "signature": "private string _name"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "field", "scope": "MyApp.Edge.Product.Price", "signature": "protected double Price"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "struct", "scope": "MyApp.Edge.Coordinate", "signature": "public struct Coordinate"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "field", "scope": "MyApp.Edge.Coordinate.Latitude", "signature": "public double Latitude"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "field", "scope": "MyApp.Edge.Coordinate.Longitude", "signature": "public double Longitude"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.EmailService", "signature": "public class EmailService"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "method", "scope": "MyApp.Edge.EmailService.Send", "signature": "public void Send(string to, string body)"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "interface", "scope": "MyApp.Edge.IEmailSender", "signature": "public interface IEmailSender"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "method_declaration", "scope": "MyApp.Edge.IEmailSender.Send", "signature": "void Send(EmailMessage message);"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "struct", "scope": "MyApp.Edge.EmailMessage", "signature": "public readonly struct EmailMessage"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "property", "scope": "MyApp.Edge.EmailMessage.To", "signature": "public string To { get; }"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "property", "scope": "MyApp.Edge.EmailMessage.Body", "signature": "public string Body { get; }"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Factory", "signature": "public class Factory"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "method", "scope": "MyApp.Edge.Factory.Build", "signature": "public void Build()"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "class", "scope": "MyApp.Edge.Processor", "signature": "public class Processor"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "method", "scope": "MyApp.Edge.Processor.Analyze", "signature": "public void Analyze(string input, int threshold)"}
+{"path": "tests/fixtures/csharp/edge.cs", "kind": "record", "scope": "MyApp.Edge.EmailTemplate", "signature": "public record class EmailTemplate(string Subject, string Body);"}

@@ -1,0 +1,40 @@
+{"path": "tests/fixtures/php/core.php", "kind": "namespace", "scope": "App\\Models", "signature": "namespace App\\Models;"}
+{"path": "tests/fixtures/php/core.php", "kind": "function", "scope": "App\\Models\\helper", "signature": "function helper(): void"}
+{"path": "tests/fixtures/php/core.php", "kind": "class", "scope": "App\\Models\\User", "signature": "class User"}
+{"path": "tests/fixtures/php/core.php", "kind": "property", "scope": "App\\Models\\User::name", "signature": "public string $name;"}
+{"path": "tests/fixtures/php/core.php", "kind": "const", "scope": "App\\Models\\User::MIN_AGE", "signature": "const MIN_AGE = 18"}
+{"path": "tests/fixtures/php/core.php", "kind": "constructor", "scope": "App\\Models\\User::__construct", "signature": "public function __construct(string $name)"}
+{"path": "tests/fixtures/php/core.php", "kind": "destructor", "scope": "App\\Models\\User::__destruct", "signature": "public function __destruct()"}
+{"path": "tests/fixtures/php/core.php", "kind": "getter", "scope": "App\\Models\\User::__get", "signature": "public function __get(string $key): mixed"}
+{"path": "tests/fixtures/php/core.php", "kind": "setter", "scope": "App\\Models\\User::__set", "signature": "public function __set(string $key, mixed $val): void"}
+{"path": "tests/fixtures/php/core.php", "kind": "operator", "scope": "App\\Models\\User::__invoke", "signature": "public function __invoke(): int"}
+{"path": "tests/fixtures/php/core.php", "kind": "method", "scope": "App\\Models\\User::getName", "signature": "public function getName(): string"}
+{"path": "tests/fixtures/php/core.php", "kind": "interface", "scope": "App\\Models\\Renderable", "signature": "interface Renderable"}
+{"path": "tests/fixtures/php/core.php", "kind": "method_declaration", "scope": "App\\Models\\Renderable::render", "signature": "public function render(): string"}
+{"path": "tests/fixtures/php/core.php", "kind": "trait", "scope": "App\\Models\\Loggable", "signature": "trait Loggable"}
+{"path": "tests/fixtures/php/core.php", "kind": "method", "scope": "App\\Models\\Loggable::log", "signature": "public function log(string $msg): void"}
+{"path": "tests/fixtures/php/core.php", "kind": "enum", "scope": "App\\Models\\Status", "signature": "enum Status"}
+{"path": "tests/fixtures/php/core.php", "kind": "variant", "scope": "App\\Models\\Status::Active", "signature": "case Active"}
+{"path": "tests/fixtures/php/core.php", "kind": "class", "scope": "App\\Models\\Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/php/core.php", "kind": "method", "scope": "App\\Models\\Alpha::process", "signature": "public function process(): void"}
+{"path": "tests/fixtures/php/core.php", "kind": "class", "scope": "App\\Models\\Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/php/core.php", "kind": "method", "scope": "App\\Models\\Beta::process", "signature": "public function process(): void"}
+{"path": "tests/fixtures/php/edge.php", "kind": "namespace", "scope": "App\\Config", "signature": "namespace App\\Config;"}
+{"path": "tests/fixtures/php/edge.php", "kind": "const", "scope": "App\\Config\\DEBUG", "signature": "const DEBUG = true, CACHE_TTL = 3600, MAX_ITEMS = 100"}
+{"path": "tests/fixtures/php/edge.php", "kind": "const", "scope": "App\\Config\\CACHE_TTL", "signature": "const DEBUG = true, CACHE_TTL = 3600, MAX_ITEMS = 100"}
+{"path": "tests/fixtures/php/edge.php", "kind": "const", "scope": "App\\Config\\MAX_ITEMS", "signature": "const DEBUG = true, CACHE_TTL = 3600, MAX_ITEMS = 100"}
+{"path": "tests/fixtures/php/edge.php", "kind": "namespace", "scope": "App\\Services", "signature": "namespace App\\Services"}
+{"path": "tests/fixtures/php/edge.php", "kind": "class", "scope": "App\\Services\\UserService", "signature": "class UserService"}
+{"path": "tests/fixtures/php/edge.php", "kind": "property", "scope": "App\\Services\\UserService::id", "signature": "private int $id"}
+{"path": "tests/fixtures/php/edge.php", "kind": "constructor", "scope": "App\\Services\\UserService::__construct", "signature": "public function __construct(private int $id)"}
+{"path": "tests/fixtures/php/edge.php", "kind": "namespace", "scope": "App\\Attributes", "signature": "namespace App\\Attributes"}
+{"path": "tests/fixtures/php/edge.php", "kind": "class", "scope": "App\\Attributes\\Route", "signature": "#[\\Attribute] class Route"}
+{"path": "tests/fixtures/php/edge.php", "kind": "property", "scope": "App\\Attributes\\Route::path", "signature": "public string $path"}
+{"path": "tests/fixtures/php/edge.php", "kind": "constructor", "scope": "App\\Attributes\\Route::__construct", "signature": "public function __construct(public string $path)"}
+{"path": "tests/fixtures/php/edge.php", "kind": "class", "scope": "App\\Attributes\\UserController", "signature": "#[Route(\"/api/users\")] class UserController"}
+{"path": "tests/fixtures/php/edge.php", "kind": "property", "scope": "App\\Attributes\\UserController::id", "signature": "private int $id"}
+{"path": "tests/fixtures/php/edge.php", "kind": "constructor", "scope": "App\\Attributes\\UserController::__construct", "signature": "public function __construct(private int $id)"}
+{"path": "tests/fixtures/php/edge.php", "kind": "const", "scope": "GLOBAL_DEFINE", "signature": "define('GLOBAL_DEFINE', 'value')"}
+{"path": "tests/fixtures/php/edge.php", "kind": "function", "scope": "outer", "signature": "function outer(): void"}
+{"path": "tests/fixtures/php/edge.php", "kind": "class", "scope": "Page", "signature": "class Page"}
+{"path": "tests/fixtures/php/edge.php", "kind": "method", "scope": "Page::render", "signature": "public function render(): string"}

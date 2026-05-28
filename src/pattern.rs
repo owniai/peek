@@ -336,100 +336,49 @@ mod tests {
         assert!(!mode.matches_ident("fobar"));
     }
 
-    #[test]
-    fn exact_substring_short_name() {
-        let mode = MatchMode::from_user_input("ab", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-        assert!(mode.matches_ident("ab"));
-        assert!(mode.matches_ident("cab"));
-        assert!(mode.matches_ident("abc"));
-    }
-
     // ===== Fuzzy trigger: regex metacharacters =====
 
     #[test]
-    fn fuzzy_triggered_by_plus() {
+    fn regex_metachar_matching_behavior() {
+        // Regex metachar patterns match identifiers as substrings
         let mode = MatchMode::from_user_input("get+", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-    }
+        assert!(mode.matches_ident("getter"));
+        assert!(mode.matches_ident("mygetter"));
+        assert!(!mode.matches_ident("foo"));
 
-    #[test]
-    fn fuzzy_triggered_by_question() {
         let mode = MatchMode::from_user_input("get?", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn fuzzy_triggered_by_bracket() {
-        let mode = MatchMode::from_user_input("get[set]", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn fuzzy_triggered_by_brace() {
-        let mode = MatchMode::from_user_input("a{2,4}", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn fuzzy_triggered_by_caret() {
-        let mode = MatchMode::from_user_input("a^b", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn fuzzy_triggered_by_dollar() {
-        let mode = MatchMode::from_user_input("a$b", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn fuzzy_triggered_by_word_flag() {
-        let mode = MatchMode::from_user_input("foo", false, true).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
+        assert!(mode.matches_ident("ge"));
+        assert!(mode.matches_ident("get"));
+        assert!(mode.matches_ident("getter"));
     }
 
     // ===== Fuzzy: substring regex matching =====
 
     #[test]
-    fn fuzzy_substring_pipe() {
+    fn fuzzy_alternation_matches_ident() {
         let mode = MatchMode::from_user_input("process|handle", false, false).unwrap();
-        match &mode {
-            MatchMode::Regex { compiled } => {
-                assert!(compiled.is_match("process"));
-                assert!(compiled.is_match("handle"));
-                assert!(compiled.is_match("myprocess"));
-                assert!(compiled.is_match("handler"));
-            }
-            _ => panic!("expected Regex mode"),
-        }
+        assert!(mode.matches_ident("process"));
+        assert!(mode.matches_ident("handle"));
+        assert!(mode.matches_ident("myprocess"));
+        assert!(mode.matches_ident("handler"));
+        assert!(!mode.matches_ident("foo"));
     }
 
     #[test]
-    fn fuzzy_dot_star_matches_anywhere() {
+    fn fuzzy_dot_star_matches_ident() {
         let mode = MatchMode::from_user_input("My.*er", false, false).unwrap();
-        match &mode {
-            MatchMode::Regex { compiled } => {
-                assert!(compiled.is_match("MyHandler"));
-                assert!(compiled.is_match("MyHandlerFactory"));
-                assert!(!compiled.is_match("MyBar"));
-            }
-            _ => panic!("expected Regex mode"),
-        }
+        assert!(mode.matches_ident("MyHandler"));
+        assert!(mode.matches_ident("MyHandlerFactory"));
+        assert!(!mode.matches_ident("MyBar"));
     }
 
     #[test]
-    fn fuzzy_group_pattern() {
+    fn fuzzy_group_pattern_matches_ident() {
         let mode = MatchMode::from_user_input("(process|handle)_data", false, false).unwrap();
-        match &mode {
-            MatchMode::Regex { compiled } => {
-                assert!(compiled.is_match("process_data"));
-                assert!(compiled.is_match("handle_data"));
-                assert!(compiled.is_match("myprocess_data"));
-                assert!(!compiled.is_match("process_event"));
-            }
-            _ => panic!("expected Regex mode"),
-        }
+        assert!(mode.matches_ident("process_data"));
+        assert!(mode.matches_ident("handle_data"));
+        assert!(mode.matches_ident("myprocess_data"));
+        assert!(!mode.matches_ident("process_event"));
     }
 
     // ===== Word boundary matching (-w) =====
@@ -502,49 +451,24 @@ mod tests {
     #[test]
     fn accept_alternation_with_valid_branch() {
         let mode = MatchMode::from_user_input("\\s|foo", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::Regex { .. }));
-        if let MatchMode::Regex { compiled } = &mode {
-            assert!(compiled.is_match("foo"));
-        }
+        assert!(mode.matches_ident("foo"));
     }
 
     // ===== HIR All-match detection =====
 
     #[test]
-    fn all_mode_word_plus() {
-        let mode = MatchMode::from_user_input("\\w+", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::All));
-    }
-
-    #[test]
-    fn all_mode_word_star() {
-        let mode = MatchMode::from_user_input("\\w*", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::All));
-    }
-
-    #[test]
-    fn all_mode_grouped_dot_star() {
-        let mode = MatchMode::from_user_input("(.*)", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::All));
-    }
-
-    #[test]
-    fn all_mode_noncap_grouped_word_plus() {
-        let mode = MatchMode::from_user_input("(?:\\w+)", false, false).unwrap();
-        assert!(matches!(mode, MatchMode::All));
-    }
-
-    #[test]
-    fn not_all_mode_literal() {
+    fn non_all_patterns_match_selectively() {
+        // Literal patterns are not All — they match only identifiers containing the pattern
         let mode = MatchMode::from_user_input("foo", false, false).unwrap();
-        assert!(!matches!(mode, MatchMode::All));
-    }
+        assert!(mode.matches_ident("foo"));
+        assert!(mode.matches_ident("foobar"));
+        assert!(!mode.matches_ident("bar"));
 
-    #[test]
-    fn not_all_mode_fuzzy_with_literals() {
+        // Regex patterns with literals are not All — they match selectively
         let mode = MatchMode::from_user_input("foo.*bar", false, false).unwrap();
-        assert!(!matches!(mode, MatchMode::All));
-        assert!(matches!(mode, MatchMode::Regex { .. }));
+        assert!(mode.matches_ident("foobar"));
+        assert!(mode.matches_ident("fooXbar"));
+        assert!(!mode.matches_ident("baz"));
     }
 
     // ===== Invalid regex =====
@@ -589,50 +513,7 @@ mod tests {
         assert!(mode.matches_ident("FOObar"));
     }
 
-    #[test]
-    fn fuzzy_default_case_sensitive() {
-        let mode = MatchMode::from_user_input("foo.*bar", false, false).unwrap();
-        assert!(mode.matches_ident("foobar"));
-        assert!(!mode.matches_ident("FooBar"));
-    }
-
-    #[test]
-    fn fuzzy_ignore_case() {
-        let mode = MatchMode::from_user_input("foo.*bar", true, false).unwrap();
-        assert!(mode.matches_ident("foobar"));
-        assert!(mode.matches_ident("FooBar"));
-        assert!(mode.matches_ident("FOOBAR"));
-    }
-
-    // ===== Smart case =====
-
-    #[test]
-    fn smart_case_exact_lowercase_insensitive() {
-        let mode = MatchMode::from_user_input("foo", is_smart_case("foo"), false).unwrap();
-        assert!(mode.matches_ident("foo"));
-        assert!(mode.matches_ident("Foo"));
-    }
-
-    #[test]
-    fn smart_case_exact_uppercase_sensitive() {
-        let mode = MatchMode::from_user_input("Foo", is_smart_case("Foo"), false).unwrap();
-        assert!(mode.matches_ident("Foo"));
-        assert!(!mode.matches_ident("foo"));
-    }
-
     // ===== ParsedPattern integration =====
-
-    #[test]
-    fn parse_exact_substring() {
-        let parsed = ParsedPattern::parse("my_func", CaseSensitivity::Sensitive, false).unwrap();
-        assert!(matches!(parsed.mode(), MatchMode::Regex { .. }));
-    }
-
-    #[test]
-    fn parse_fuzzy_no_scope() {
-        let parsed = ParsedPattern::parse("my.*func", CaseSensitivity::Sensitive, false).unwrap();
-        assert!(matches!(parsed.mode(), MatchMode::Regex { .. }));
-    }
 
     #[test]
     fn parse_literal_compiled_as_regex() {

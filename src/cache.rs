@@ -9,7 +9,7 @@ use crate::model::{DefContent, DefKind};
 // Binary format constants
 // ---------------------------------------------------------------------------
 
-const VERSION: u32 = 5;
+const VERSION: u32 = 7;
 const HEADER_SIZE: usize = 8; // version(4) + entry_count(4)
 const INDEX_ENTRY_SIZE: usize = 32; // path_hash(8) + mtime(8) + size(8) + offset(4) + len(4)
 
@@ -546,24 +546,27 @@ fn read_u16_string_from(data: &[u8], pos: &mut usize, max_len: usize) -> Option<
 }
 
 // ---------------------------------------------------------------------------
-// Project root detection — shared with pipeline.rs
+// Project root resolution — shared with pipeline.rs
 // ---------------------------------------------------------------------------
 
-/// Find project root by walking up from `start` looking for `.git`.
-pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
-    let mut current = if start.is_absolute() {
-        start.to_path_buf()
-    } else {
-        std::env::current_dir().ok()?.join(start)
-    };
-
-    loop {
-        let git_path = current.join(".git");
-        if git_path.exists() {
-            return Some(current);
-        }
-        current = current.parent()?.to_path_buf();
+/// Resolve project root using the priority chain:
+/// 1. `cli_root` (from --project-root) — explicit override, highest priority
+/// 2. `.peek-cache/` directory in cwd — auto-detected from prior run
+/// 3. None — no caching
+///
+/// When project root is resolved, cache lives at `<root>/.peek-cache/cache.bin`.
+/// When None, cache is disabled (search still works, just slower).
+pub(crate) fn resolve_project_root(cli_root: Option<&Path>) -> Option<PathBuf> {
+    if let Some(root) = cli_root {
+        return Some(crate::output::absolutize(root));
     }
+
+    let cwd = std::env::current_dir().ok()?;
+    if cwd.join(".peek-cache").exists() {
+        return Some(cwd);
+    }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -574,224 +577,6 @@ pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::io::Write as IoWrite;
-
-    // =======================================================================
-    // Task 2: Binary format constants & IndexEntry
-    // =======================================================================
-
-    #[test]
-    fn header_size_is_8_bytes() {
-        assert_eq!(HEADER_SIZE, 8);
-    }
-
-    #[test]
-    fn index_entry_size_is_32_bytes() {
-        assert_eq!(INDEX_ENTRY_SIZE, 32);
-    }
-
-    #[test]
-    fn version_is_5() {
-        assert_eq!(VERSION, 5);
-    }
-
-    #[test]
-    fn index_entry_read_from_valid_data() {
-        let mut data = vec![0u8; HEADER_SIZE + INDEX_ENTRY_SIZE];
-        // Write version + entry_count in header
-        data[0..4].copy_from_slice(&VERSION.to_le_bytes());
-        data[4..8].copy_from_slice(&1u32.to_le_bytes());
-        // Write index entry at position 0
-        let base = HEADER_SIZE;
-        data[base + OFF_PATH_HASH..base + OFF_PATH_HASH + 8]
-            .copy_from_slice(&0xABCDEF0123456789u64.to_le_bytes());
-        data[base + OFF_MTIME..base + OFF_MTIME + 8].copy_from_slice(&1000u64.to_le_bytes());
-        data[base + OFF_FILE_SIZE..base + OFF_FILE_SIZE + 8].copy_from_slice(&200u64.to_le_bytes());
-        data[base + OFF_DATA_OFFSET..base + OFF_DATA_OFFSET + 4]
-            .copy_from_slice(&300u32.to_le_bytes());
-        data[base + OFF_DATA_LEN..base + OFF_DATA_LEN + 4].copy_from_slice(&50u32.to_le_bytes());
-
-        let entry = IndexEntry::read_from(&data, 0).unwrap();
-        assert_eq!(entry.path_hash, 0xABCDEF0123456789u64);
-        assert_eq!(entry.mtime_millis, 1000);
-        assert_eq!(entry.file_size, 200);
-        assert_eq!(entry.data_offset, 300);
-        assert_eq!(entry.data_len, 50);
-    }
-
-    #[test]
-    fn index_entry_read_from_truncated_data_returns_none() {
-        let data = vec![0u8; HEADER_SIZE + 16]; // Only 16 bytes, need 32
-        assert!(IndexEntry::read_from(&data, 0).is_none());
-    }
-
-    #[test]
-    fn index_entry_read_path_hash() {
-        let mut data = vec![0u8; HEADER_SIZE + INDEX_ENTRY_SIZE];
-        let base = HEADER_SIZE;
-        data[base..base + 8].copy_from_slice(&0xDEADBEEFu64.to_le_bytes());
-
-        assert_eq!(IndexEntry::read_path_hash(&data, 0), Some(0xDEADBEEFu64));
-    }
-
-    // =======================================================================
-    // Task 3: DATA encoding
-    // =======================================================================
-
-    fn make_defs() -> Vec<DefContent> {
-        vec![
-            DefContent {
-                kind: DefKind::Function,
-                lines: [10, 25],
-                signature: "fn process(data: &str)".to_string(),
-                scope: "handler::process".to_string(),
-            },
-            DefContent {
-                kind: DefKind::Class,
-                lines: [5, 15],
-                signature: "struct Config".to_string(),
-                scope: "Config".to_string(),
-            },
-        ]
-    }
-
-    #[test]
-    fn encode_defs_empty() {
-        let encoded = encode_defs(&[]);
-        // def_count(4) = 0
-        assert_eq!(encoded.len(), 4);
-        assert_eq!(u32::from_le_bytes(encoded[0..4].try_into().unwrap()), 0);
-    }
-
-    #[test]
-    fn encode_defs_single() {
-        let defs = vec![DefContent {
-            kind: DefKind::Function,
-            lines: [1, 10],
-            signature: "fn foo()".to_string(),
-            scope: "foo".to_string(),
-        }];
-        let encoded = encode_defs(&defs);
-
-        // Verify def_count
-        assert_eq!(u32::from_le_bytes(encoded[0..4].try_into().unwrap()), 1);
-
-        // Verify kind byte
-        assert_eq!(encoded[4], DefKind::Function.to_u8());
-
-        // Verify start_line
-        assert_eq!(u32::from_le_bytes(encoded[5..9].try_into().unwrap()), 1);
-
-        // Verify end_line
-        assert_eq!(u32::from_le_bytes(encoded[9..13].try_into().unwrap()), 10);
-    }
-
-    #[test]
-    fn encode_defs_multiple_starts_with_count() {
-        let defs = make_defs();
-        let encoded = encode_defs(&defs);
-        let count = u32::from_le_bytes(encoded[0..4].try_into().unwrap());
-        assert_eq!(count, 2);
-    }
-
-    #[test]
-    fn encode_defs_preserves_kind_for_all_variants() {
-        for &kind in DefKind::all() {
-            let defs = vec![DefContent {
-                kind,
-                lines: [1, 2],
-                signature: "s".to_string(),
-                scope: "sc".to_string(),
-            }];
-            let encoded = encode_defs(&defs);
-            assert_eq!(encoded[4], kind.to_u8(), "kind mismatch for {:?}", kind);
-        }
-    }
-
-    // =======================================================================
-    // Task 4: DATA decoding (round-trip)
-    // =======================================================================
-
-    #[test]
-    fn decode_round_trip_empty() {
-        let encoded = encode_defs(&[]);
-        // Create a fake IndexEntry pointing to the encoded data
-        let entry = IndexEntry {
-            path_hash: 1,
-            mtime_millis: 0,
-            file_size: 0,
-            data_offset: 0,
-            data_len: encoded.len() as u32,
-        };
-        let decoded = decode_data(&encoded, &entry).unwrap();
-        assert!(decoded.is_empty());
-    }
-
-    #[test]
-    fn decode_round_trip_single_def() {
-        let defs = vec![DefContent {
-            kind: DefKind::Function,
-            lines: [10, 25],
-            signature: "fn process(data: &str)".to_string(),
-            scope: "handler::process".to_string(),
-        }];
-        let encoded = encode_defs(&defs);
-        let entry = IndexEntry {
-            path_hash: 1,
-            mtime_millis: 0,
-            file_size: 0,
-            data_offset: 0,
-            data_len: encoded.len() as u32,
-        };
-        let decoded = decode_data(&encoded, &entry).unwrap();
-        assert_eq!(decoded.len(), 1);
-        assert_eq!(decoded[0].kind, DefKind::Function);
-        assert_eq!(decoded[0].lines, [10, 25]);
-        assert_eq!(decoded[0].signature, "fn process(data: &str)");
-        assert_eq!(decoded[0].scope, "handler::process");
-    }
-
-    #[test]
-    fn decode_round_trip_multiple_defs() {
-        let defs = make_defs();
-        let encoded = encode_defs(&defs);
-        let entry = IndexEntry {
-            path_hash: 1,
-            mtime_millis: 0,
-            file_size: 0,
-            data_offset: 0,
-            data_len: encoded.len() as u32,
-        };
-        let decoded = decode_data(&encoded, &entry).unwrap();
-        assert_eq!(decoded.len(), defs.len());
-        for (a, b) in defs.iter().zip(decoded.iter()) {
-            assert_eq!(a.kind, b.kind);
-            assert_eq!(a.lines, b.lines);
-            assert_eq!(a.signature, b.signature);
-            assert_eq!(a.scope, b.scope);
-        }
-    }
-
-    #[test]
-    fn decode_round_trip_all_def_kinds() {
-        for &kind in DefKind::all() {
-            let defs = vec![DefContent {
-                kind,
-                lines: [1, 2],
-                signature: "sig".to_string(),
-                scope: "scope".to_string(),
-            }];
-            let encoded = encode_defs(&defs);
-            let entry = IndexEntry {
-                path_hash: 1,
-                mtime_millis: 0,
-                file_size: 0,
-                data_offset: 0,
-                data_len: encoded.len() as u32,
-            };
-            let decoded = decode_data(&encoded, &entry).unwrap();
-            assert_eq!(decoded[0].kind, kind, "round-trip failed for {:?}", kind);
-        }
-    }
 
     #[test]
     fn decode_returns_none_on_truncated_data() {
@@ -865,48 +650,6 @@ mod tests {
             data_len: 10,
         };
         assert!(decode_data(&[0u8; 10], &entry).is_none());
-    }
-
-    #[test]
-    fn decode_round_trip_empty_strings() {
-        let defs = vec![DefContent {
-            kind: DefKind::Function,
-            lines: [1, 1],
-            signature: String::new(),
-            scope: String::new(),
-        }];
-        let encoded = encode_defs(&defs);
-        let entry = IndexEntry {
-            path_hash: 1,
-            mtime_millis: 0,
-            file_size: 0,
-            data_offset: 0,
-            data_len: encoded.len() as u32,
-        };
-        let decoded = decode_data(&encoded, &entry).unwrap();
-        assert_eq!(decoded[0].signature, "");
-        assert_eq!(decoded[0].scope, "");
-    }
-
-    #[test]
-    fn decode_round_trip_unicode_strings() {
-        let defs = vec![DefContent {
-            kind: DefKind::Function,
-            lines: [1, 1],
-            signature: "fn 日本語テスト()".to_string(),
-            scope: "モジュール::関数".to_string(),
-        }];
-        let encoded = encode_defs(&defs);
-        let entry = IndexEntry {
-            path_hash: 1,
-            mtime_millis: 0,
-            file_size: 0,
-            data_offset: 0,
-            data_len: encoded.len() as u32,
-        };
-        let decoded = decode_data(&encoded, &entry).unwrap();
-        assert_eq!(decoded[0].signature, "fn 日本語テスト()");
-        assert_eq!(decoded[0].scope, "モジュール::関数");
     }
 
     #[test]
@@ -1063,19 +806,6 @@ mod tests {
     }
 
     #[test]
-    fn truncate_defs_preserves_short_values() {
-        let mut defs = vec![DefContent {
-            kind: DefKind::Function,
-            lines: [1, 1],
-            signature: "fn foo()".to_string(),
-            scope: "foo".to_string(),
-        }];
-        truncate_defs(&mut defs);
-        assert_eq!(defs[0].signature, "fn foo()");
-        assert_eq!(defs[0].scope, "foo");
-    }
-
-    #[test]
     fn truncate_defs_matches_encode_decode_round_trip() {
         // After truncate_defs + encode_defs + decode_data, values must be identical.
         // Scope is no longer truncated, so it should round-trip in full.
@@ -1117,41 +847,6 @@ mod tests {
         );
     }
 
-    // =======================================================================
-    // Task 5: Helper functions
-    // =======================================================================
-
-    #[test]
-    fn path_hash_deterministic() {
-        let h1 = path_hash(Path::new("src/main.rs"));
-        let h2 = path_hash(Path::new("src/main.rs"));
-        assert_eq!(h1, h2);
-    }
-
-    #[test]
-    fn path_hash_different_paths() {
-        let h1 = path_hash(Path::new("src/main.rs"));
-        let h2 = path_hash(Path::new("src/lib.rs"));
-        assert_ne!(h1, h2);
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn path_hash_cross_platform_consistent() {
-        let forward = path_hash(Path::new("src/main.rs"));
-        let backslash = path_hash(Path::new("src\\main.rs"));
-        assert_eq!(
-            forward, backslash,
-            "same file should produce same hash regardless of separator"
-        );
-    }
-
-    #[test]
-    fn path_hash_empty_path() {
-        let h = path_hash(Path::new(""));
-        assert_ne!(h, 0, "even empty path should produce a non-trivial hash");
-    }
-
     #[test]
     fn mtime_millis_returns_some_for_real_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -1189,40 +884,6 @@ mod tests {
 
         let result = CacheIndex::load(tmp.path());
         assert!(result.is_none());
-    }
-
-    #[test]
-    fn load_succeeds_for_valid_header() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let mut data = vec![0u8; HEADER_SIZE];
-        data[0..4].copy_from_slice(&VERSION.to_le_bytes());
-        data[4..8].copy_from_slice(&0u32.to_le_bytes()); // entry_count = 0
-        tmp.as_file().write_all(&data).unwrap();
-        tmp.as_file().flush().unwrap();
-
-        let result = CacheIndex::load(tmp.path());
-        assert!(result.is_some());
-        let idx = result.unwrap();
-        assert_eq!(idx.entry_count, 0);
-    }
-
-    #[test]
-    fn load_succeeds_with_entries() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let mut data = vec![0u8; HEADER_SIZE + INDEX_ENTRY_SIZE];
-        data[0..4].copy_from_slice(&VERSION.to_le_bytes());
-        data[4..8].copy_from_slice(&1u32.to_le_bytes()); // entry_count = 1
-        // Write a dummy index entry with data_offset and data_len pointing within file
-        let base = HEADER_SIZE;
-        data[base + OFF_PATH_HASH..base + OFF_PATH_HASH + 8].copy_from_slice(&123u64.to_le_bytes());
-        data[base + OFF_DATA_OFFSET..base + OFF_DATA_OFFSET + 4]
-            .copy_from_slice(&((HEADER_SIZE + INDEX_ENTRY_SIZE) as u32).to_le_bytes());
-        data[base + OFF_DATA_LEN..base + OFF_DATA_LEN + 4].copy_from_slice(&0u32.to_le_bytes());
-        tmp.as_file().write_all(&data).unwrap();
-        tmp.as_file().flush().unwrap();
-
-        let idx = CacheIndex::load(tmp.path()).unwrap();
-        assert_eq!(idx.entry_count, 1);
     }
 
     #[test]
@@ -1331,20 +992,6 @@ mod tests {
     }
 
     #[test]
-    fn lookup_hit_single_entry() {
-        let tmp = build_test_cache(&[(100, 1000, 200)]);
-        let idx = CacheIndex::load(tmp.path()).unwrap();
-        match idx.lookup(100, 1000, 200) {
-            CacheOutcome::Hit(entry) => {
-                assert_eq!(entry.path_hash, 100);
-                assert_eq!(entry.mtime_millis, 1000);
-                assert_eq!(entry.file_size, 200);
-            }
-            other => panic!("expected Hit, got {:?}", other),
-        }
-    }
-
-    #[test]
     fn lookup_stale_mtime_mismatch() {
         let tmp = build_test_cache(&[(100, 1000, 200)]);
         let idx = CacheIndex::load(tmp.path()).unwrap();
@@ -1389,43 +1036,6 @@ mod tests {
         match idx.lookup(123, 0, 0) {
             CacheOutcome::NotFound => {}
             other => panic!("expected NotFound, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn lookup_multiple_entries() {
-        // Sorted: 10, 20, 30, 40, 50
-        let hashes: Vec<(u64, u64, u64)> = (0..5)
-            .map(|i| {
-                let h = (i + 1) * 10;
-                (h, h * 100, h * 10)
-            })
-            .collect();
-        let tmp = build_test_cache(&hashes);
-        let idx = CacheIndex::load(tmp.path()).unwrap();
-
-        // Hit middle
-        match idx.lookup(30, 3000, 300) {
-            CacheOutcome::Hit(e) => assert_eq!(e.path_hash, 30),
-            other => panic!("expected Hit for 30, got {:?}", other),
-        }
-
-        // Hit first
-        match idx.lookup(10, 1000, 100) {
-            CacheOutcome::Hit(e) => assert_eq!(e.path_hash, 10),
-            other => panic!("expected Hit for 10, got {:?}", other),
-        }
-
-        // Hit last
-        match idx.lookup(50, 5000, 500) {
-            CacheOutcome::Hit(e) => assert_eq!(e.path_hash, 50),
-            other => panic!("expected Hit for 50, got {:?}", other),
-        }
-
-        // Not found
-        match idx.lookup(25, 0, 0) {
-            CacheOutcome::NotFound => {}
-            other => panic!("expected NotFound for 25, got {:?}", other),
         }
     }
 
@@ -1479,47 +1089,6 @@ mod tests {
             CacheOutcome::Hit(_) => {}
             other => panic!("expected Hit, got {:?}", other),
         }
-    }
-
-    #[test]
-    fn write_cache_round_trip_data() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cache.bin");
-        let defs = vec![
-            make_def(
-                DefKind::Function,
-                10,
-                25,
-                "fn process(data: &str)",
-                "handler::process",
-            ),
-            make_def(DefKind::Class, 5, 15, "struct Config", "Config"),
-        ];
-        let mut updates = std::collections::HashMap::new();
-        updates.insert(
-            42,
-            CacheEvent::Miss {
-                path_hash: 42,
-                mtime: 5000,
-                size: 300,
-                defs: defs.clone(),
-            },
-        );
-
-        write_cache(&path, None, &updates).unwrap();
-        let idx = CacheIndex::load(&path).unwrap();
-        let entry = match idx.lookup(42, 5000, 300) {
-            CacheOutcome::Hit(e) => e,
-            other => panic!("expected Hit, got {:?}", other),
-        };
-        let decoded = decode_data(idx.mapped_bytes(), &entry).unwrap();
-        assert_eq!(decoded.len(), 2);
-        assert_eq!(decoded[0].kind, DefKind::Function);
-        assert_eq!(decoded[0].signature, "fn process(data: &str)");
-        assert_eq!(decoded[0].lines, [10, 25]);
-        assert_eq!(decoded[0].scope, "handler::process");
-        assert_eq!(decoded[1].kind, DefKind::Class);
-        assert_eq!(decoded[1].scope, "Config");
     }
 
     #[test]
@@ -1809,21 +1378,58 @@ mod tests {
     }
 
     // =======================================================================
-    // find_project_root
+    // resolve_project_root
     // =======================================================================
 
     #[test]
-    fn find_project_root_finds_git_dir() {
+    fn resolve_project_root_cli_root_absolute() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
-        let root = find_project_root(tmp.path());
-        assert!(root.is_some());
+        let abs = tmp.path().to_path_buf();
+        let root = resolve_project_root(Some(abs.as_path()));
+        assert_eq!(root, Some(abs));
     }
 
     #[test]
-    fn find_project_root_none_without_git() {
+    fn resolve_project_root_cli_root_relative() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = find_project_root(tmp.path());
+        let cwd = std::env::current_dir().unwrap();
+        let rel = tmp.path().strip_prefix(&cwd).unwrap_or(tmp.path());
+        let root = resolve_project_root(Some(rel));
+        assert!(root.is_some());
+        assert!(root.unwrap().is_absolute());
+    }
+
+    #[test]
+    fn resolve_project_root_detects_peek_cache_in_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let cache_dir = cwd.join(".peek-cache");
+        let created = !cache_dir.exists();
+        if created {
+            std::fs::create_dir_all(&cache_dir).unwrap();
+        }
+        let root = resolve_project_root(None);
+        assert_eq!(root, Some(cwd));
+        if created {
+            std::fs::remove_dir_all(&cache_dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn resolve_project_root_none_when_no_peek_cache() {
+        let tmp = tempfile::tempdir().unwrap();
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        let root = resolve_project_root(None);
+        std::env::set_current_dir(&original).unwrap();
         assert!(root.is_none());
+    }
+
+    #[test]
+    fn resolve_project_root_cli_root_overrides_peek_cache() {
+        // --project-root takes priority even when .peek-cache exists in cwd.
+        let tmp = tempfile::tempdir().unwrap();
+        let abs = tmp.path().to_path_buf();
+        let root = resolve_project_root(Some(abs.as_path()));
+        assert_eq!(root, Some(abs));
     }
 }

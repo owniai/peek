@@ -1,0 +1,83 @@
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "package", "scope": "com.example.core", "signature": "package com.example.core"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "function", "scope": "topFunc", "signature": "fun topFunc(x: Int): String"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "const", "scope": "APP_NAME", "signature": "const val APP_NAME = \"MyApp\""}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "const", "scope": "APP_VERSION", "signature": "const val APP_VERSION = \"1.0.0\""}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "const", "scope": "MAX_RETRIES", "signature": "const val MAX_RETRIES = 3"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "var", "scope": "globalCounter", "signature": "var globalCounter = 0"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "alias", "scope": "StringMap", "signature": "typealias StringMap = Map<String, String>"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "MyClass", "signature": "class MyClass(val name: String)"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "method", "scope": "MyClass.regularMethod", "signature": "fun regularMethod(): String"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "MyClass.displayName", "signature": "var displayName: String = \"\""}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "MyClass.isActive", "signature": "val isActive: Boolean = true"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "MyClass.name", "signature": "val name: String"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "constructor", "scope": "MyClass", "signature": "(val name: String)"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "interface", "scope": "Drawable", "signature": "interface Drawable"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "method_declaration", "scope": "Drawable.draw", "signature": "fun draw()"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "enum", "scope": "Color", "signature": "enum class Color"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "variant", "scope": "Color.RED", "signature": "RED"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "annotation", "scope": "Injectable", "signature": "annotation class Injectable"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "object", "scope": "MathUtils", "signature": "object MathUtils"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "method", "scope": "MathUtils.square", "signature": "fun square(n: Int): Int"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "Vec", "signature": "class Vec"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "operator", "scope": "Vec.plus", "signature": "operator fun plus(other: Vec): Vec"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "Product", "signature": "class Product"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "Product.name", "signature": "val name: String"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "getter", "scope": "Product.name", "signature": "get() = \"product\""}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "Timer", "signature": "class Timer"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "Timer.timeout", "signature": "var timeout: Int = 0"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "setter", "scope": "Timer.timeout", "signature": "set(value) { field = value }"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "L1", "signature": "class L1"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "L1.L2", "signature": "class L2"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "L1.L2.L3", "signature": "class L3"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "method", "scope": "L1.L2.L3.deepMethod", "signature": "fun deepMethod()"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "Alpha", "signature": "class Alpha"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "method", "scope": "Alpha.process", "signature": "fun process()"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "Beta", "signature": "class Beta"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "method", "scope": "Beta.process", "signature": "fun process()"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "class", "scope": "UserProfile", "signature": "class UserProfile"}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "UserProfile.displayName", "signature": "var displayName: String = \"\""}
+{"path": "tests/fixtures/kotlin/core.kt", "kind": "property", "scope": "UserProfile.isActive", "signature": "val isActive: Boolean = true"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Token", "signature": "class Token(val value: String)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "operator", "scope": "Token.contains", "signature": "operator fun contains(char: Char): Boolean"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "Token.value", "signature": "val value: String"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "constructor", "scope": "Token", "signature": "(val value: String)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "const", "scope": "destX", "signature": "val(destX, destY) = getPoint()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "const", "scope": "destY", "signature": "val(destX, destY) = getPoint()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "var", "scope": "destA", "signature": "var(destA, destB) = getCoords()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "var", "scope": "destB", "signature": "var(destA, destB) = getCoords()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "DataHolder", "signature": "class DataHolder"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "DataHolder.holderName", "signature": "val(holderName, holderAge) = parseData()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "DataHolder.holderAge", "signature": "val(holderName, holderAge) = parseData()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "DataHolder.holderScore", "signature": "var(holderScore, holderLevel) = loadStats()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "DataHolder.holderLevel", "signature": "var(holderScore, holderLevel) = loadStats()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "MixedParams", "signature": "class MixedParams("}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "MixedParams.propParam", "signature": "val propParam: String"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "MixedParams.mutableParam", "signature": "var mutableParam: Int"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "constructor", "scope": "MixedParams", "signature": "(val propParam: String, var mutableParam: Int, plainParam: Double)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Config", "signature": "class Config"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "object", "scope": "Config.Defaults", "signature": "companion object Defaults"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "const", "scope": "Config.Defaults.DEFAULT_TIMEOUT", "signature": "const val DEFAULT_TIMEOUT = 30"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Repository", "signature": "class Repository"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "const", "scope": "Repository.Companion.MAX_RESULTS", "signature": "const val MAX_RESULTS = 100"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Shape", "signature": "sealed class Shape"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Shape.Circle", "signature": "class Circle : Shape()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "interface", "scope": "Node", "signature": "sealed interface Node"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Node.Literal", "signature": "class Literal : Node"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "enum", "scope": "Planet", "signature": "enum class Planet(val mass: Double)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "variant", "scope": "Planet.EARTH", "signature": "EARTH(5.97e24) {"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "method", "scope": "Planet.EARTH.toString", "signature": "override fun toString(): String"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "variant", "scope": "Planet.MARS", "signature": "MARS(6.42e23) {"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "Planet.MARS.gravity", "signature": "val gravity = 3.7"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "method", "scope": "Planet.MARS.describe", "signature": "fun describe(): String"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "Planet.mass", "signature": "val mass: Double"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "constructor", "scope": "Planet", "signature": "(val mass: Double)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Widget", "signature": "class Widget"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "Widget.name", "signature": "var name: String = \"\""}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "getter", "scope": "Widget.name", "signature": "get() = field.trim()"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "setter", "scope": "Widget.name", "signature": "set(value) { field = value.lowercase() }"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "class", "scope": "Person", "signature": "class Person(val firstName: String, val lastName: String)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "constructor", "scope": "Person", "signature": "constructor(fullName: String) : this(fullName.split(\" \")[0], fullName.split(\" \")[1])"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "Person.firstName", "signature": "val firstName: String"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "property", "scope": "Person.lastName", "signature": "val lastName: String"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "constructor", "scope": "Person", "signature": "(val firstName: String, val lastName: String)"}
+{"path": "tests/fixtures/kotlin/edge.kt", "kind": "function", "scope": "factory", "signature": "fun factory()"}

@@ -1,0 +1,151 @@
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "function", "scope": "process", "signature": "int process(int x)"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "var", "scope": "global_count", "signature": "int global_count = 0;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "var", "scope": "file_count", "signature": "static int file_count = 0;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "var", "scope": "file_name", "signature": "static char *file_name;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "const", "scope": "MAX_SIZE", "signature": "const int MAX_SIZE = 1024;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "const", "scope": "MAX_THREADS", "signature": "constexpr int MAX_THREADS = 16;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "macro", "scope": "DEBUG_FLAG", "signature": "#define DEBUG_FLAG 1"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "alias", "scope": "StatusCode", "signature": "typedef int StatusCode;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "alias", "scope": "Handle", "signature": "typedef int Handle;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "alias", "scope": "Callback", "signature": "using Callback = void(*)(int);"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "alias", "scope": "Processor", "signature": "using Processor = void(*)(int);"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "alias", "scope": "vector", "signature": "using std::vector;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "namespace", "scope": "Core", "signature": "namespace Core"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "alias", "scope": "Core::io", "signature": "namespace io = Core;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "function", "scope": "Core::run", "signature": "void run()"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "class", "scope": "Core::Service", "signature": "class Service"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "constructor", "scope": "Core::Service::Service", "signature": "Service(int port)"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "destructor", "scope": "Core::Service::~Service", "signature": "~Service()"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "method", "scope": "Core::Service::execute", "signature": "void execute()"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "operator", "scope": "Core::Service::operator==", "signature": "bool operator==(const Service& o) const"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "field", "scope": "Core::Service::port", "signature": "int port;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "struct", "scope": "Core::Config", "signature": "struct Config"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "field", "scope": "Core::Config::timeout", "signature": "int timeout;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "enum", "scope": "Core::Status", "signature": "enum Status {"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Core::Status::OK", "signature": "OK"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Core::Status::ERROR", "signature": "ERROR"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "const", "scope": "Core::TIMEOUT", "signature": "const int TIMEOUT = 30;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "var", "scope": "Core::counter", "signature": "static int counter = 0;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "struct", "scope": "Point", "signature": "struct Point"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "field", "scope": "Point::x", "signature": "double x;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "field", "scope": "Point::y", "signature": "double y;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "union", "scope": "Data", "signature": "union Data"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "field", "scope": "Data::i", "signature": "int i;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "field", "scope": "Data::f", "signature": "float f;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "enum", "scope": "Color", "signature": "enum Color {"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Color::RED", "signature": "RED"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Color::GREEN", "signature": "GREEN"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Color::BLUE", "signature": "BLUE"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "enum", "scope": "Direction", "signature": "enum class Direction : int {"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Direction::UP", "signature": "UP"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Direction::DOWN", "signature": "DOWN"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "enum", "scope": "Toggle", "signature": "typedef enum {"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Toggle::TOGGLE_ON", "signature": "TOGGLE_ON"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "variant", "scope": "Toggle::TOGGLE_OFF", "signature": "TOGGLE_OFF"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "concept", "scope": "Printable", "signature": "concept Printable = requires(T t) { t.print(); };"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "namespace", "scope": "App", "signature": "namespace App"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "namespace", "scope": "App::Detail", "signature": "namespace Detail"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "function", "scope": "App::Detail::compute", "signature": "void compute()"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "const", "scope": "App::Detail::BUFFER_SIZE", "signature": "const int BUFFER_SIZE = 4096;"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "class", "scope": "App::Detail::Container", "signature": "class Container"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "class", "scope": "App::Detail::Container::Item", "signature": "class Item"}
+{"path": "tests/fixtures/cpp/core.cpp", "kind": "method", "scope": "App::Detail::Container::Item::validate", "signature": "void validate()"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "macro", "scope": "CORE_HPP_", "signature": "#define CORE_HPP_"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "function_declaration", "scope": "core_process", "signature": "int core_process(int x);"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "function_declaration", "scope": "core_run", "signature": "void core_run(void);"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "const", "scope": "CORE_MAX_THREADS", "signature": "constexpr int CORE_MAX_THREADS = 16;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "macro", "scope": "CORE_DEBUG_FLAG", "signature": "#define CORE_DEBUG_FLAG 1"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "alias", "scope": "CoreStatusCode", "signature": "typedef int CoreStatusCode;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "alias", "scope": "CoreHandle", "signature": "typedef int CoreHandle;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "alias", "scope": "CoreCallback", "signature": "using CoreCallback = void(*)(int);"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "namespace", "scope": "CoreNs", "signature": "namespace CoreNs"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "alias", "scope": "CoreNs::io", "signature": "namespace io = CoreNs;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "function_declaration", "scope": "CoreNs::dispatch", "signature": "void dispatch(int signal);"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "class", "scope": "CoreNs::CoreService", "signature": "class CoreService"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "constructor_declaration", "scope": "CoreNs::CoreService::CoreService", "signature": "CoreService(int port);"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "destructor_declaration", "scope": "CoreNs::CoreService::~CoreService", "signature": "~CoreService();"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "method_declaration", "scope": "CoreNs::CoreService::execute", "signature": "void execute();"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "operator_declaration", "scope": "CoreNs::CoreService::operator==", "signature": "bool operator==(const CoreService& o) const;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "field", "scope": "CoreNs::CoreService::port", "signature": "int port;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "struct", "scope": "CoreNs::CoreConfig", "signature": "struct CoreConfig"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "field", "scope": "CoreNs::CoreConfig::timeout", "signature": "int timeout;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "enum", "scope": "CoreNs::CoreStatus", "signature": "enum CoreStatus {"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreNs::CoreStatus::CORE_OK", "signature": "CORE_OK"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreNs::CoreStatus::CORE_ERROR", "signature": "CORE_ERROR"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "const", "scope": "CoreNs::CORE_TIMEOUT", "signature": "const int CORE_TIMEOUT = 30;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "struct", "scope": "CorePoint", "signature": "struct CorePoint"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "field", "scope": "CorePoint::x", "signature": "double x;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "field", "scope": "CorePoint::y", "signature": "double y;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "union", "scope": "CoreData", "signature": "union CoreData"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "field", "scope": "CoreData::i", "signature": "int i;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "field", "scope": "CoreData::f", "signature": "float f;"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "enum", "scope": "CoreColor", "signature": "enum CoreColor {"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreColor::CORE_RED", "signature": "CORE_RED"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreColor::CORE_GREEN", "signature": "CORE_GREEN"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreColor::CORE_BLUE", "signature": "CORE_BLUE"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "enum", "scope": "CoreDirection", "signature": "enum class CoreDirection : int {"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreDirection::UP", "signature": "UP"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "variant", "scope": "CoreDirection::DOWN", "signature": "DOWN"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "concept", "scope": "CorePrintable", "signature": "concept CorePrintable = requires(T t) { t.print(); };"}
+{"path": "tests/fixtures/cpp/core.hpp", "kind": "var_declaration", "scope": "core_global_ref", "signature": "extern int core_global_ref;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class_declaration", "scope": "Node", "signature": "class Node"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "struct_declaration", "scope": "Data", "signature": "struct Data"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "enum_declaration", "scope": "Color", "signature": "enum Color"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "enum_declaration", "scope": "Status", "signature": "enum class Status : int"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "union_declaration", "scope": "Packet", "signature": "union Packet"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "function_declaration", "scope": "compute", "signature": "int compute(int x);"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "var_declaration", "scope": "shared_counter", "signature": "extern int shared_counter;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "const_declaration", "scope": "EXTERN_CONST", "signature": "extern const int EXTERN_CONST;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "var", "scope": "initialized_var", "signature": "extern int initialized_var = 5;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Engine", "signature": "class Engine"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method_declaration", "scope": "Engine::start", "signature": "void start();"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method_declaration", "scope": "Engine::stop", "signature": "void stop();"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method", "scope": "Engine::start", "signature": "void Engine::start()"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method", "scope": "Engine::stop", "signature": "void Engine::stop()"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "function_declaration", "scope": "compute", "signature": "const int compute();"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Foo", "signature": "class Foo"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "destructor_declaration", "scope": "Foo::~Foo", "signature": "~Foo();"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "destructor", "scope": "~Foo", "signature": "Foo::~Foo()"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Vec2", "signature": "class Vec2"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "operator_declaration", "scope": "Vec2::operator+", "signature": "Vec2 operator+(const Vec2& o) const;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "operator", "scope": "Vec2::operator+", "signature": "Vec2 Vec2::operator+(const Vec2& o) const"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Defaulted", "signature": "class Defaulted"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "constructor", "scope": "Defaulted::Defaulted", "signature": "Defaulted() = default;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Deleted", "signature": "class Deleted"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method", "scope": "Deleted::bar", "signature": "void bar() = delete;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "struct", "scope": "Outer", "signature": "struct Outer"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "field", "scope": "Outer::anon", "signature": "struct { int x; } anon;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "field", "scope": "Outer::anon::x", "signature": "int x;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "field", "scope": "Outer::data", "signature": "union { int i; float f; } data;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "field", "scope": "Outer::data::i", "signature": "int i;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "field", "scope": "Outer::data::f", "signature": "float f;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "function", "scope": "factory", "signature": "void factory()"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "function", "scope": "process_data", "signature": "void process_data(int items, bool verbose)"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "linkage", "scope": "C", "signature": "extern \"C\""}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "function_declaration", "scope": "C::c_func", "signature": "void c_func(int x);"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Config", "signature": "class Config"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "constructor_declaration", "scope": "Config::Config", "signature": "explicit Config(const char* path);"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "Abstract", "signature": "class Abstract"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method_declaration", "scope": "Abstract::do_work", "signature": "virtual void do_work() = 0;"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "class", "scope": "StaticHolder", "signature": "class StaticHolder"}
+{"path": "tests/fixtures/cpp/edge.cpp", "kind": "method_declaration", "scope": "StaticHolder::helper", "signature": "static void helper();"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "macro", "scope": "EDGE_HPP_", "signature": "#define EDGE_HPP_"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "function_declaration", "scope": "hpp_init", "signature": "int hpp_init(int mode);"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "function_declaration", "scope": "hpp_cleanup", "signature": "void hpp_cleanup(void);"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "function_declaration", "scope": "hpp_fast_path", "signature": "inline int hpp_fast_path(int x);"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "class_declaration", "scope": "Handle", "signature": "class Handle"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "class_declaration", "scope": "Allocator", "signature": "class Allocator"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "function_declaration", "scope": "hpp_convert", "signature": "T hpp_convert(T input);"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "class", "scope": "HppArray", "signature": "class HppArray"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "field", "scope": "HppArray::data[N]", "signature": "T data[N];"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "method_declaration", "scope": "HppArray::size", "signature": "int size() const;"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "function_declaration", "scope": "hpp_limit", "signature": "constexpr int hpp_limit();"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "namespace", "scope": "HppNs", "signature": "namespace HppNs"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "function_declaration", "scope": "HppNs::dispatch", "signature": "void dispatch(int signal);"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "const", "scope": "HppNs::HPP_VERSION", "signature": "const int HPP_VERSION = 2;"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "class_declaration", "scope": "HppNs::Dispatcher", "signature": "class Dispatcher"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "concept", "scope": "HppComparable", "signature": "concept HppComparable = requires(T a, T b) { a < b; };"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "var_declaration", "scope": "hpp_global_ref", "signature": "extern int hpp_global_ref;"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "const_declaration", "scope": "hpp_lib_name", "signature": "extern const char *hpp_lib_name;"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "alias", "scope": "HppResult", "signature": "using HppResult = int;"}
+{"path": "tests/fixtures/cpp/edge.hpp", "kind": "macro", "scope": "HPP_MAX_ENTRIES", "signature": "#define HPP_MAX_ENTRIES 256"}
